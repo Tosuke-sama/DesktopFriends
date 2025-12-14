@@ -2,18 +2,15 @@ name: Build and Release APK
 
 on:
   push:
-    branches:
-      - main
     tags:
-      - 'v*'  # 也支持 tag 触发，如 v1.0.0
+      - 'v*'  # 只在创建版本标签时触发，如 v1.0.0, v1.2.3
+  workflow_dispatch:  # 允许手动触发
 
-# 👇权限配置
 permissions:
-  contents: write  # 允许创建 releases 和 tags
-  packages: read   # 允许读取包（如有需要）
-  actions: read    # 允许读取工作流状态
-  
-# 防止同时运行多个工作流
+  contents: write
+  packages: read
+  actions: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -69,7 +66,7 @@ jobs:
 
       - name: Add Capacitor Android platform
         working-directory: apps/mobile
-        run: npx cap add android || true  # 如果已存在则忽略错误
+        run: npx cap add android || true
 
       - name: Sync Capacitor
         working-directory: apps/mobile
@@ -87,14 +84,10 @@ jobs:
         working-directory: apps/mobile/android
         run: ./gradlew assembleRelease
 
-      - name: Get version info
+      - name: Get version from tag
         id: version
         run: |
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/}
-          else
-            VERSION="build-$(date +'%Y%m%d')-${GITHUB_SHA::7}"
-          fi
+          VERSION=${GITHUB_REF#refs/tags/}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
 
@@ -117,37 +110,13 @@ jobs:
           name: release-apk
           path: apps/mobile/android/app/build/outputs/apk/release/*.apk
 
-      # 只在 tag 推送时创建 Release
       - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ steps.version.outputs.version }}
           draft: false
           prerelease: false
           generate_release_notes: true
-          files: |
-            apps/mobile/android/app/build/outputs/apk/debug/DesktopFriends-${{ steps.version.outputs.version }}-debug.apk
-            apps/mobile/android/app/build/outputs/apk/release/DesktopFriends-${{ steps.version.outputs.version }}-release.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # 每次 main 推送都更新 latest release
-      - name: Update Latest Release
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: Latest Build
-          draft: false
-          prerelease: true
-          body: |
-            ## 最新开发版本
-
-            构建时间: ${{ github.event.head_commit.timestamp }}
-            提交: ${{ github.sha }}
-
-            > ⚠️ 这是自动构建的开发版本，可能不稳定
           files: |
             apps/mobile/android/app/build/outputs/apk/debug/DesktopFriends-${{ steps.version.outputs.version }}-debug.apk
             apps/mobile/android/app/build/outputs/apk/release/DesktopFriends-${{ steps.version.outputs.version }}-release.apk
