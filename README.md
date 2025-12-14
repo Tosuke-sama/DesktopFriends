@@ -22,6 +22,10 @@
 - **背景自定义** - 自定义背景图片或选择预设渐变
 - **聊天记录** - 完整的聊天历史记录，支持导出
 
+## 演示
+感谢[@碳苯 Carbon](https://github.com/CoderSerio)提供的live2D模型，他真的很可爱！
+<img src="./assets/demo.gif" width="300" alt="演示">
+
 ## 技术栈
 
 | 模块 | 技术 |

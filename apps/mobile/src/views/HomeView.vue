@@ -354,17 +354,31 @@ async function handlePetMessage(message: PetMessage) {
   }
 }
 
+// 根据字数计算显示时间
+const calculateDisplayDuration = (message: string): number => {
+  const charCount = message.length;
+  // 基础时间 3 秒 + 每个字符 80ms，最小 3 秒，最大 15 秒
+  const baseDuration = 3000;
+  const perCharDuration = 80;
+  const minDuration = 3000;
+  const maxDuration = 15000;
+
+  const duration = baseDuration + charCount * perCharDuration;
+  return Math.max(minDuration, Math.min(maxDuration, duration));
+};
+
 // 处理新宠物上线
 function handlePetOnline(pet: PetInfo) {
   // 可以播放一个欢迎动作
   if (autoChat.value && !autoChatCooldown.value) {
     live2dRef.value?.playMotion("Flick");
-    currentMessage.value = `${pet.name} 来了~`;
+    const welcomeMsg = `${pet.name} 来了~`;
+    currentMessage.value = welcomeMsg;
     currentSpeaker.value = null;
 
     setTimeout(() => {
       currentMessage.value = "";
-    }, 3000);
+    }, calculateDisplayDuration(welcomeMsg));
   }
 }
 
@@ -375,9 +389,10 @@ const clearMessage = () => {
     currentMessage.value &&
     !currentSpeaker.value
   ) {
+    const duration = calculateDisplayDuration(currentMessage.value);
     setTimeout(() => {
       currentMessage.value = "";
-    }, settings.value.bubbleDuration);
+    }, duration);
   }
 };
 
