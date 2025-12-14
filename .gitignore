@@ -51,3 +51,9 @@ apps/mobile/public/modules/TanBen_origin
 
 # Claude Code config
 .claude/
+
+#docs
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+docs/.vitepress/temp/
+docs/node_modules/

@@ -29,6 +29,8 @@ pnpm --filter @desktopfriends/server dev
 
 服务器默认运行在 `http://localhost:3000`
 
+或者手机端一键启动服务器，会提示有服务器地址
+
 ### 2. 连接设备
 
 在每台手机的 DesktopFriends 应用中：

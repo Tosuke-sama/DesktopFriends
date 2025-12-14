@@ -8,7 +8,7 @@
 
 从 GitHub Releases 下载最新的 APK 文件：
 
-<a href="https://github.com/user/DesktopFriends/releases/latest" class="download-link" target="_blank">
+<a href="https://github.com/Tosuke-sama/DesktopFriends/releases/latest" class="download-link" target="_blank">
   前往下载页面 →
 </a>
 
@@ -22,7 +22,7 @@
 ## 系统要求
 
 - Android 7.0 (API 24) 或更高版本
-- 至少 100MB 可用存储空间
+- 至少 100MB 可用存储空间(debug版本)
 - 用于 AI 对话：需要与运行中继服务器的电脑在同一局域网
 
 ## 安装说明

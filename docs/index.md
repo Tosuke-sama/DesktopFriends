@@ -4,9 +4,9 @@ layout: home
 hero:
   name: DesktopFriends
   text: 可爱的桌面宠物
-  tagline: 将旧手机变成 Live2D 桌面宠物，支持 AI 对话和多设备联动
+  tagline: 将旧手机变成 Live2D 桌面宠物，支持 AI 对话和多宠物联动
   image:
-    src: /mascot.png
+    src: /logo.png
     alt: DesktopFriends 吉祥物
   actions:
     - theme: brand
@@ -24,17 +24,17 @@ features:
     title: AI 对话
     details: 集成多种 AI 服务（Ollama、OpenAI、Google Gemini），与桌面宠物自然对话
   - icon: 📱
-    title: 多设备联动
-    details: 手机作为显示端，电脑作为控制端，通过局域网无缝连接
-  - icon: 🎤
-    title: 语音交互
-    details: 支持语音输入和 TTS 语音合成，实现真正的语音对话体验
+    title: 多宠物联动
+    details: 其他宠物会随时收听到你的对话并会尝试加入对话，他们也会相互交流，通过局域网无缝连接
   - icon: ⚡
-    title: 高性能
-    details: 基于 PixiJS 渲染，流畅动画，低功耗运行
+    title: 表情动作封装
+    details: AI 会根据情况使用包括模型所有的表情与动作，让对话更加生动
   - icon: 🎨
     title: 高度可定制
     details: 自定义模型、动作、表情，打造专属的桌面伙伴
+  - icon: 🎤
+    title: 语音交互（开发中）
+    details: 支持语音输入和 VTS 语音合成，实现真正的语音对话体验
 ---
 
 <div class="custom-home">
@@ -45,17 +45,17 @@ features:
   <FeatureCard
     icon="📱"
     title="废旧手机再利用"
-    description="让闲置的旧手机焕发新生，变成可爱的桌面装饰"
+    description="让闲置的旧手机焕发新生，变成可爱使用的桌面装饰"
   />
   <FeatureCard
     icon="🤖"
     title="智能 AI 伙伴"
-    description="不只是摆设，还能与你对话、回答问题、陪你聊天"
+    description="不只是摆设，还能使用表情与动作与你对话，关键是「大家」一起"
   />
   <FeatureCard
     icon="🔗"
     title="无缝联动"
-    description="电脑端一键控制，手机端实时响应，跨设备协作"
+    description="电脑端与手机端一个房间，可以进行跨设备交流"
   />
 </div>
 
@@ -88,10 +88,10 @@ features:
   <h2>开始使用</h2>
   <p>下载 APK 安装到你的安卓手机，开启桌面宠物之旅</p>
   <div class="download-buttons">
-    <a href="/download" class="download-btn primary">
+    <a href="download" class="download-btn primary">
       📥 下载 APK
     </a>
-    <a href="/guide/getting-started" class="download-btn secondary">
+    <a href="guide/getting-started" class="download-btn secondary">
       📖 查看文档
     </a>
   </div>
