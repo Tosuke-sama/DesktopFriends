@@ -4,6 +4,7 @@ export default defineConfig({
   title: 'DesktopFriends',
   description: '可爱的 Live2D 桌面宠物，支持 AI 对话和多设备联动',
   lang: 'zh-CN',
+  base: '/DesktopFriends/',
 
   head: [
     ['link', { rel: 'icon', href: '/favicon.ico' }],
