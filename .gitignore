@@ -30,8 +30,7 @@ logs
 npm-debug.log*
 pnpm-debug.log*
 
-# Capacitor
-apps/mobile/android/
+# Capacitor (iOS not committed, Android is committed for custom native code)
 apps/mobile/ios/
 
 # TypeScript

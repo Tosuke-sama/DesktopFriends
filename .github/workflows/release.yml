@@ -64,10 +64,6 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Add Capacitor Android platform
-        working-directory: apps/mobile
-        run: npx cap add android || true
-
       - name: Sync Capacitor
         working-directory: apps/mobile
         run: npx cap sync android

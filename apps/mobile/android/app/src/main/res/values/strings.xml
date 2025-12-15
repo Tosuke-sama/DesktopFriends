@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TableFri</string>
+    <string name="title_activity_main">TableFri</string>
+    <string name="package_name">com.tablefri.app</string>
+    <string name="custom_url_scheme">com.tablefri.app</string>
+</resources>
