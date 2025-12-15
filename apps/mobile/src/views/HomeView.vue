@@ -12,6 +12,11 @@ import { useKeyboard } from "../composables/useKeyboard";
 import type { ToolCall } from "../composables/useLive2DTools";
 import type { PetMessage, PetInfo } from "@desktopfriends/shared";
 
+// 组件名称，用于 KeepAlive
+defineOptions({
+  name: "HomeView",
+});
+
 const emit = defineEmits<{
   openSettings: [];
 }>();

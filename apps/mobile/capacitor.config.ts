@@ -14,11 +14,11 @@ const config: CapacitorConfig = {
   },
   plugins: {
     Keyboard: {
-      // 键盘弹出时调整 WebView 大小
-      resize: 'body' as KeyboardResize,
-      // 键盘弹出时滚动到焦点元素
-      scrollAssist: true,
-      scrollPadding: true,
+      // 禁用系统自动调整，由代码手动控制输入框位置
+      resize: 'none' as KeyboardResize,
+      // 禁用自动滚动，避免布局异常
+      scrollAssist: false,
+      scrollPadding: false,
     },
   },
 }

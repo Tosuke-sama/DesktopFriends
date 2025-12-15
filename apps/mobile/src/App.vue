@@ -26,16 +26,18 @@ const navigateTo = (view: ViewName) => {
 <template>
   <div class="app">
     <Transition :name="transitionName" mode="out-in">
-      <HomeView
-        v-if="currentView === 'home'"
-        key="home"
-        @open-settings="navigateTo('settings')"
-      />
-      <SettingsView
-        v-else-if="currentView === 'settings'"
-        key="settings"
-        @back="navigateTo('home')"
-      />
+      <KeepAlive include="HomeView">
+        <HomeView
+          v-if="currentView === 'home'"
+          key="home"
+          @open-settings="navigateTo('settings')"
+        />
+        <SettingsView
+          v-else-if="currentView === 'settings'"
+          key="settings"
+          @back="navigateTo('home')"
+        />
+      </KeepAlive>
     </Transition>
   </div>
 </template>

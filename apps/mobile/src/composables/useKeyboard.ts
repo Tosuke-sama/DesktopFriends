@@ -11,9 +11,6 @@ export function useKeyboard() {
     isKeyboardVisible.value = true
     keyboardHeight.value = info.keyboardHeight
     console.log('Keyboard shown, height:', info.keyboardHeight)
-
-    // 设置 CSS 变量供样式使用
-    document.documentElement.style.setProperty('--keyboard-height', `${info.keyboardHeight}px`)
   }
 
   // 处理键盘隐藏
@@ -21,8 +18,6 @@ export function useKeyboard() {
     isKeyboardVisible.value = false
     keyboardHeight.value = 0
     console.log('Keyboard hidden')
-
-    document.documentElement.style.setProperty('--keyboard-height', '0px')
   }
 
   onMounted(async () => {

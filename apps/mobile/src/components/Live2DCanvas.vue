@@ -33,6 +33,7 @@ let model: any = null
 let placeholder: PIXI.Text | null = null
 let baseScale = 1 // 基础缩放比例（适应屏幕的）
 let resizeTimeout: ReturnType<typeof setTimeout> | null = null
+let lastOrientation: 'portrait' | 'landscape' | null = null // 记录上次屏幕方向
 
 // 应用变换设置
 const applyTransform = (transform: Live2DTransform) => {
@@ -79,14 +80,24 @@ const refreshCanvas = () => {
   }
 }
 
-// 处理屏幕方向变化（带防抖）
+// 处理屏幕方向变化（只在真正方向改变时刷新）
 const handleOrientationChange = () => {
+  // 检测当前方向
+  const currentOrientation = window.innerWidth > window.innerHeight ? 'landscape' : 'portrait'
+
+  // 只有方向真正改变时才刷新（忽略键盘等导致的 resize）
+  if (lastOrientation !== null && lastOrientation === currentOrientation) {
+    console.log('Ignoring resize, orientation unchanged:', currentOrientation)
+    return
+  }
+
   if (resizeTimeout) {
     clearTimeout(resizeTimeout)
   }
   // 延迟刷新，等待布局稳定
   resizeTimeout = setTimeout(() => {
-    console.log('Screen orientation/resize changed, refreshing canvas')
+    console.log('Screen orientation changed:', lastOrientation, '->', currentOrientation)
+    lastOrientation = currentOrientation
     refreshCanvas()
   }, 100)
 }
@@ -318,18 +329,31 @@ const tryAutoLoadModel = async () => {
 onMounted(async () => {
   if (!canvasRef.value) return
 
-  // 创建 PIXI 应用
+  const parent = canvasRef.value.parentElement
+  if (!parent) return
+
+  // 等待一帧，确保父元素尺寸稳定
+  await new Promise(resolve => requestAnimationFrame(resolve))
+
+  // 初始化屏幕方向
+  lastOrientation = window.innerWidth > window.innerHeight ? 'landscape' : 'portrait'
+
+  // 获取稳定的尺寸
+  const width = parent.clientWidth
+  const height = parent.clientHeight
+
+  // 创建 PIXI 应用，使用固定尺寸而非 resizeTo
   app = new PIXI.Application({
     view: canvasRef.value,
     backgroundAlpha: 0,
-    resizeTo: canvasRef.value.parentElement!,
+    width,
+    height,
     antialias: true,
   })
 
-  // 监听屏幕方向和大小变化
+  // 监听屏幕方向变化（只响应真正的方向改变）
   window.addEventListener('resize', handleOrientationChange)
   window.addEventListener('orientationchange', handleOrientationChange)
-  // 某些设备使用 screen.orientation API
   if (screen.orientation) {
     screen.orientation.addEventListener('change', handleOrientationChange)
   }
