@@ -87,12 +87,13 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
 
-      - name: Rename APK files
+      - name: Rename APK files for release
         run: |
-          mv apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk \
-             apps/mobile/android/app/build/outputs/apk/debug/DesktopFriends-${{ steps.version.outputs.version }}-debug.apk
-          mv apps/mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk \
-             apps/mobile/android/app/build/outputs/apk/release/DesktopFriends-${{ steps.version.outputs.version }}-release.apk
+          # build.gradle 输出的文件名是 TableFri-v1.0.0-debug.apk 格式
+          # 重命名为 DesktopFriends-版本号 格式用于发布
+          cd apps/mobile/android/app/build/outputs/apk
+          mv debug/TableFri-*.apk debug/DesktopFriends-${{ steps.version.outputs.version }}-debug.apk
+          mv release/TableFri-*.apk release/DesktopFriends-${{ steps.version.outputs.version }}-release.apk
 
       - name: Upload Debug APK artifact
         uses: actions/upload-artifact@v4
