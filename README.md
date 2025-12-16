@@ -1,14 +1,15 @@
-# DesktopFriends - 桌面宠物
+# DesktopFriends / TableFri - 桌面宠物
 
 <p align="center">
   <img src="https://img.shields.io/badge/Vue-3.5-4FC08D?logo=vue.js" alt="Vue 3">
   <img src="https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Tauri-1.6-24C8DB?logo=tauri" alt="Tauri">
   <img src="https://img.shields.io/badge/Capacitor-6.2-119EFF?logo=capacitor" alt="Capacitor">
   <img src="https://img.shields.io/badge/Live2D-PixiJS-FF6B6B" alt="Live2D">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License">
 </p>
 
-将旧 Android 手机变成可爱的 Live2D 桌面宠物，接入大模型进行智能对话，支持局域网内多设备宠物互相交流。
+跨平台 AI Live2D 桌面宠物应用。支持 **桌面端 (macOS)** 和 **移动端 (Android)**，接入大模型进行智能对话，支持局域网内多设备宠物互相交流。
 
 ## 演示
 感谢[@碳苯 Carbon](https://github.com/CoderSerio)提供的live2D模型，他真的很可爱！
@@ -18,9 +19,10 @@
 
 ## 特性
 
+### 通用功能
 - **Live2D 渲染** - 流畅的 Live2D 模型展示，支持动作和表情切换
 - **AI 智能对话** - 接入 OpenAI/Claude/DeepSeek 等大模型，实现个性化对话
-- **FUNCTION CALL调用宠物表情以及动作** - 大模型在进行回复时会调用每个模型存在的表情列表以及动作列表。
+- **FUNCTION CALL调用宠物表情以及动作** - 大模型在进行回复时会调用每个模型存在的表情列表以及动作列表
 - **内心独白系统** - 宠物可以有内心想法，以不同气泡样式展示
 - **多宠物管理** - 创建多个宠物角色，自定义名称和人设
 - **局域网互联** - 多台设备上的宠物可以互相看到、打招呼、自动聊天
@@ -28,12 +30,23 @@
 - **背景自定义** - 自定义背景图片或选择预设渐变
 - **聊天记录** - 完整的聊天历史记录，支持导出
 
+### 桌面端特有 (macOS)
+- **透明窗口** - 无边框透明窗口，宠物悬浮在桌面上
+- **点击穿透** - 鼠标不在 Live2D 模型区域时自动穿透点击到下层窗口
+- **锁定模式** - 一键锁定，禁用点击穿透并始终显示 UI
+- **窗口控制** - 自定义标题栏，支持最小化、最大化、关闭
+
+### 移动端特有 (Android)
+- **键盘适配** - 智能调整输入框位置，避免被键盘遮挡
+- **屏幕方向** - 支持横屏和竖屏模式，自动调整 Live2D 位置
+
 ## 技术栈
 
 | 模块 | 技术 |
 |------|------|
-| 移动端框架 | Vue 3 + TypeScript + Vite |
-| 原生打包 | Capacitor 6 (Android) |
+| 前端框架 | Vue 3 + TypeScript + Vite |
+| 桌面端打包 | Tauri 1.6 (macOS) |
+| 移动端打包 | Capacitor 6 (Android) |
 | Live2D 渲染 | PixiJS 6 + pixi-live2d-display |
 | 后端服务 | Fastify + Socket.io |
 | 包管理 | pnpm (monorepo) |
@@ -43,39 +56,68 @@
 ```
 DesktopFriends/
 ├── apps/
-│   ├── mobile/                    # 移动端应用
+│   ├── desktop/                  # 桌面端应用 (Tauri)
 │   │   ├── src/
 │   │   │   ├── components/
-│   │   │   │   ├── Live2DCanvas.vue   # Live2D 渲染
-│   │   │   │   ├── ChatBubble.vue     # 对话气泡
-│   │   │   │   ├── ChatInput.vue      # 文字输入
-│   │   │   │   └── ChatHistory.vue    # 聊天历史
+│   │   │   │   └── WindowControls.vue   # 窗口控制按钮
 │   │   │   ├── composables/
-│   │   │   │   ├── useChat.ts         # 大模型对话
-│   │   │   │   ├── useP2P.ts          # 局域网通信
-│   │   │   │   ├── useSettings.ts     # 设置管理
-│   │   │   │   ├── useChatHistory.ts  # 聊天记录
-│   │   │   │   ├── useModelUpload.ts  # 模型上传
-│   │   │   │   ├── useKeyboard.ts     # 键盘处理
-│   │   │   │   ├── useServerDiscovery.ts  # 服务器发现
-│   │   │   │   └── useLive2DTools.ts  # Live2D 工具调用
+│   │   │   │   └── useModelUpload.ts    # 桌面端模型上传
 │   │   │   ├── views/
-│   │   │   │   ├── HomeView.vue       # 主页面
-│   │   │   │   └── SettingsView.vue   # 设置页面
+│   │   │   │   └── SettingsView.vue     # 设置页面
 │   │   │   ├── App.vue
 │   │   │   └── main.ts
-│   │   ├── public/models/             # 内置模型目录
-│   │   ├── android/                   # Android 原生项目
+│   │   └── src-tauri/               # Tauri 原生代码
+│   │       ├── src/main.rs          # Rust 主入口
+│   │       ├── tauri.conf.json      # Tauri 配置
+│   │       └── Cargo.toml
+│   │
+│   ├── mobile/                   # 移动端应用 (Capacitor)
+│   │   ├── src/
+│   │   │   ├── components/
+│   │   │   │   └── ...              # 移动端特定组件
+│   │   │   ├── composables/
+│   │   │   │   ├── useKeyboard.ts   # 键盘处理
+│   │   │   │   └── useModelUpload.ts # 移动端模型上传
+│   │   │   ├── views/
+│   │   │   │   ├── HomeView.vue
+│   │   │   │   └── SettingsView.vue
+│   │   │   ├── App.vue
+│   │   │   └── main.ts
+│   │   ├── public/models/           # 内置模型目录
+│   │   ├── android/                 # Android 原生项目
 │   │   └── capacitor.config.ts
 │   │
-│   └── server/                    # 中继服务器
+│   └── server/                   # 中继服务器
 │       ├── src/
-│       │   ├── index.ts           # 服务入口
-│       │   └── socket.ts          # Socket 事件处理
+│       │   ├── index.ts          # 服务入口
+│       │   └── socket.ts         # Socket 事件处理
 │       └── package.json
 │
 ├── packages/
-│   └── shared/                    # 共享类型定义
+│   ├── core/                     # 核心业务逻辑
+│   │   └── src/
+│   │       ├── composables/
+│   │       │   ├── useChat.ts         # 大模型对话
+│   │       │   ├── useP2P.ts          # 局域网通信
+│   │       │   ├── useSettings.ts     # 设置管理
+│   │       │   ├── useChatHistory.ts  # 聊天记录
+│   │       │   ├── useServerDiscovery.ts  # 服务器发现
+│   │       │   └── useLive2DTools.ts  # Live2D 工具调用
+│   │       └── index.ts
+│   │
+│   ├── ui/                       # 共享 UI 组件
+│   │   └── src/
+│   │       ├── Live2DCanvas.vue     # Live2D 渲染
+│   │       ├── ChatBubble.vue       # 对话气泡
+│   │       ├── ChatInput.vue        # 文字输入
+│   │       ├── ChatHistory.vue      # 聊天历史
+│   │       └── index.ts
+│   │
+│   ├── platform/                 # 平台适配层
+│   │   └── src/
+│   │       └── index.ts          # 平台检测工具
+│   │
+│   └── shared/                   # 共享类型定义
 │       └── src/index.ts
 │
 ├── package.json
@@ -88,6 +130,7 @@ DesktopFriends/
 
 - Node.js >= 18
 - pnpm >= 8
+- Rust (桌面端构建必需)
 - Java JDK 17+ (Android 构建必需)
 - Android Studio (打包 APK 时需要)
 
@@ -96,6 +139,11 @@ DesktopFriends/
 brew install openjdk@17
 echo 'export JAVA_HOME=$(/usr/libexec/java_home)' >> ~/.zshrc
 source ~/.zshrc
+```
+
+**安装 Rust (桌面端)：**
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
 ### 安装依赖
@@ -107,6 +155,9 @@ pnpm install
 ### 开发模式
 
 ```bash
+# 启动桌面端开发服务器 (macOS)
+pnpm dev:desktop
+
 # 启动移动端开发服务器
 pnpm dev:mobile
 
@@ -114,7 +165,21 @@ pnpm dev:mobile
 pnpm dev:server
 ```
 
-访问 http://localhost:5173 查看效果。
+移动端访问 http://localhost:5173 查看效果。
+
+### 打包桌面端应用 (macOS)
+
+```bash
+cd apps/desktop
+
+# 开发模式运行
+pnpm tauri:dev
+
+# 构建发布版本
+pnpm tauri:build
+```
+
+应用输出位置：`apps/desktop/src-tauri/target/release/bundle/`
 
 ### 打包 Android APK
 
@@ -278,8 +343,18 @@ PORT=8080 HOST=0.0.0.0 pnpm dev:server
 ### 已实现
 
 - [x] 项目基础架构搭建 (monorepo)
-- [x] Vue 3 + TypeScript 移动端框架
-- [x] Capacitor Android 配置
+- [x] Vue 3 + TypeScript 前端框架
+- [x] 共享包架构 (core/ui/platform/shared)
+- [x] **桌面端应用 (Tauri - macOS)**
+  - [x] 透明无边框窗口
+  - [x] 点击穿透功能
+  - [x] 锁定模式
+  - [x] 自定义窗口控制
+  - [x] Live2D 模型上传
+- [x] **移动端应用 (Capacitor - Android)**
+  - [x] 键盘适配
+  - [x] 屏幕方向支持
+  - [x] Live2D 模型上传
 - [x] Live2D 渲染组件 (pixi-live2d-display)
 - [x] 对话 UI 组件 (输入框、气泡、历史记录)
 - [x] 大模型对话模块 (支持 OpenAI/Claude/DeepSeek/自定义)
@@ -290,11 +365,9 @@ PORT=8080 HOST=0.0.0.0 pnpm dev:server
 - [x] 局域网通信 (useP2P)
 - [x] 多宠物管理 (创建/删除/复制/切换)
 - [x] 局域网服务器扫描发现
-- [x] Live2D 模型上传 (zip 解压)
 - [x] 聊天记录存储与导出 (JSON/文本)
 - [x] 背景自定义 (图片上传/预设渐变)
 - [x] Material Design UI 组件库
-- [x] 移动端键盘适配
 - [x] 页面切换动画 (滑动过渡)
 
 ### 开发中
@@ -307,7 +380,7 @@ PORT=8080 HOST=0.0.0.0 pnpm dev:server
 
 - [ ] **中继服务器 LLM 调度器** - 由服务器端大模型决定下一个发言的宠物，实现更自然的多宠物对话流
 - [ ] iOS 支持
-- [ ] 桌面端支持 (Electron)
+- [ ] Windows/Linux 桌面端支持
 - [ ] 语音合成 (TTS)
 - [ ] 语音识别 (ASR)
 - [ ] 宠物记忆系统 (长期记忆)

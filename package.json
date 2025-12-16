@@ -5,18 +5,24 @@
   "description": "Live2D 桌面宠物 - 将旧手机变成可爱的桌面伴侣",
   "scripts": {
     "dev:mobile": "pnpm --filter @desktopfriends/mobile dev",
+    "dev:desktop": "pnpm build:packages && pnpm --filter @desktopfriends/desktop dev",
     "dev:server": "pnpm --filter @desktopfriends/server dev",
+    "build:packages": "pnpm --filter @desktopfriends/shared build && pnpm --filter @desktopfriends/platform build && pnpm --filter @desktopfriends/core build && pnpm --filter @desktopfriends/ui build",
     "build:mobile": "pnpm --filter @desktopfriends/mobile build",
+    "build:desktop": "pnpm build:packages && pnpm --filter @desktopfriends/desktop build",
     "build:server": "pnpm --filter @desktopfriends/server build",
     "android:sync": "pnpm build:mobile && cd apps/mobile && npx cap sync android",
     "android:open": "cd apps/mobile && npx cap open android",
     "android:debug": "pnpm android:sync && cd apps/mobile/android && ./gradlew assembleDebug",
-    "android:release": "pnpm android:sync && cd apps/mobile/android && ./gradlew assembleRelease"
+    "android:release": "pnpm android:sync && cd apps/mobile/android && ./gradlew assembleRelease",
+    "tauri:dev": "pnpm build:packages && pnpm --filter @desktopfriends/desktop tauri:dev",
+    "tauri:build": "pnpm build:packages && pnpm --filter @desktopfriends/desktop tauri:build"
   },
   "keywords": [
     "live2d",
     "desktop-pet",
     "capacitor",
+    "tauri",
     "android"
   ],
   "author": "",

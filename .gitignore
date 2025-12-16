@@ -42,11 +42,18 @@ coverage/
 # Build artifacts
 apps/server/dist/
 apps/mobile/dist/
+apps/desktop/dist/
+
+# Tauri / Rust
+apps/desktop/src-tauri/target/
 
 # Live2D models (add your own models, respect copyright)
 apps/mobile/public/models/*
 !apps/mobile/public/models/.gitkeep
 apps/mobile/public/modules/TanBen_origin
+apps/desktop/public/modules/TanBen_origin
+apps/desktop/public/models/*
+!apps/desktop/public/models/.gitkeep
 
 # Claude Code config
 .claude/

@@ -1,4 +1,4 @@
-name: Build and Release APK
+name: Build and Release
 
 on:
   push:
@@ -16,7 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  # Android APK 构建
+  build-android:
     runs-on: ubuntu-latest
 
     steps:
@@ -55,8 +56,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Build shared package
-        run: pnpm --filter @desktopfriends/shared build
+      - name: Build packages
+        run: pnpm build:packages
 
       - name: Build mobile app
         run: pnpm build:mobile
@@ -89,23 +90,144 @@ jobs:
 
       - name: Rename APK files for release
         run: |
-          # build.gradle 输出的文件名是 TableFri-v1.0.0-debug.apk 格式
-          # 重命名为 DesktopFriends-版本号 格式用于发布
           cd apps/mobile/android/app/build/outputs/apk
-          mv debug/TableFri-*.apk debug/DesktopFriends-${{ steps.version.outputs.version }}-debug.apk
-          mv release/TableFri-*.apk release/DesktopFriends-${{ steps.version.outputs.version }}-release.apk
+          mv debug/TableFri-*.apk debug/TableFri-${{ steps.version.outputs.version }}-android-debug.apk
+          mv release/TableFri-*.apk release/TableFri-${{ steps.version.outputs.version }}-android-release.apk
 
       - name: Upload Debug APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: debug-apk
+          name: android-debug-apk
           path: apps/mobile/android/app/build/outputs/apk/debug/*.apk
 
       - name: Upload Release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-apk
+          name: android-release-apk
           path: apps/mobile/android/app/build/outputs/apk/release/*.apk
+
+  # macOS 桌面端构建
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build packages
+        run: pnpm build:packages
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Build Tauri app
+        working-directory: apps/desktop
+        run: pnpm tauri build
+
+      - name: Rename macOS artifacts
+        run: |
+          cd apps/desktop/src-tauri/target/release/bundle
+          # 重命名 .dmg 文件
+          if [ -f "dmg/TableFri_"*".dmg" ]; then
+            mv dmg/TableFri_*.dmg dmg/TableFri-${{ steps.version.outputs.version }}-macos.dmg
+          fi
+          # 重命名 .app.tar.gz 文件 (用于自动更新)
+          if [ -f "macos/TableFri.app.tar.gz" ]; then
+            mv macos/TableFri.app.tar.gz macos/TableFri-${{ steps.version.outputs.version }}-macos.app.tar.gz
+          fi
+
+      - name: Upload macOS DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+
+      - name: Upload macOS App artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: apps/desktop/src-tauri/target/release/bundle/macos/*.tar.gz
+          if-no-files-found: ignore
+
+  # 创建 Release
+  release:
+    needs: [build-android, build-macos]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download Android Debug APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-debug-apk
+          path: artifacts/android
+
+      - name: Download Android Release APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-release-apk
+          path: artifacts/android
+
+      - name: Download macOS DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-dmg
+          path: artifacts/macos
+
+      - name: Download macOS App
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-app
+          path: artifacts/macos
+        continue-on-error: true
+
+      - name: List artifacts
+        run: |
+          echo "=== All artifacts ==="
+          find artifacts -type f -name "*.*" | head -20
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -115,7 +237,8 @@ jobs:
           prerelease: false
           generate_release_notes: true
           files: |
-            apps/mobile/android/app/build/outputs/apk/debug/DesktopFriends-${{ steps.version.outputs.version }}-debug.apk
-            apps/mobile/android/app/build/outputs/apk/release/DesktopFriends-${{ steps.version.outputs.version }}-release.apk
+            artifacts/android/*.apk
+            artifacts/macos/*.dmg
+            artifacts/macos/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
