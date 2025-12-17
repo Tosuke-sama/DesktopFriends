@@ -3,14 +3,14 @@ import {
   ref,
   onMounted,
   onUnmounted,
-  onActivated,
+  // onActivated,
   // onDeactivated,
   watch,
 } from "vue";
 import * as PIXI from "pixi.js";
 import { Live2DModel } from "pixi-live2d-display";
-import { Capacitor } from "@capacitor/core";
-import { useSettings, type Live2DTransform } from "../composables/useSettings";
+// import { Capacitor } from "@capacitor/core";
+import { useSettings, type Live2DTransform } from "@desktopfriends/core";
 
 // 注册 Live2D 到 PIXI（必须在加载模型前执行）
 // @ts-ignore
@@ -423,18 +423,18 @@ watch(
   { deep: true }
 );
 
-// KeepAlive 激活时重新加载模型（仅 PC 端需要，移动端正常）
-onActivated(async () => {
-  // 移动端不需要重新加载
-  if (Capacitor.isNativePlatform()) {
-    return;
-  }
+// KeepAlive 激活时重新加载模型,目前似乎不需要
+// onActivated(async () => {
+//   // 移动端不需要重新加载
+//   if (Capacitor.isNativePlatform()) {
+//     return;
+//   }
 
-  console.log("Live2DCanvas activated (PC), reloading model");
-  if (app && currentPet.value.modelPath) {
-    await loadModel(currentPet.value.modelPath);
-  }
-});
+//   console.log("Live2DCanvas activated (PC), reloading model");
+//   if (app && currentPet.value.modelPath) {
+//     await loadModel(currentPet.value.modelPath);
+//   }
+// });
 
 // KeepAlive 停用时卸载模型
 // onDeactivated(() => {

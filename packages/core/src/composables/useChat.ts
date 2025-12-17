@@ -9,6 +9,7 @@ import {
   generateClaudeTools,
   generateToolUsagePrompt,
 } from './useLive2DTools'
+import { useWebSocket } from '@desktopfriends/core'
 
 // 聊天响应（包含文本和工具调用）
 export interface ChatResponse {

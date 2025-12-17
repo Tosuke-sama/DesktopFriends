@@ -1,17 +1,24 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import MdInput from '../components/ui/MdInput.vue'
-import MdTextarea from '../components/ui/MdTextarea.vue'
-import MdSelect from '../components/ui/MdSelect.vue'
-import MdSwitch from '../components/ui/MdSwitch.vue'
-import MdCard from '../components/ui/MdCard.vue'
-import MdButton from '../components/ui/MdButton.vue'
-import MdSnackbar from '../components/ui/MdSnackbar.vue'
-import { useSettings, DEFAULT_PET_PROMPT, PRESET_BACKGROUNDS } from '../composables/useSettings'
-import { useServerDiscovery, type DiscoveredServer } from '../composables/useServerDiscovery'
-import { useP2P } from '../composables/useP2P'
+import {
+  MdInput,
+  MdTextarea,
+  MdSelect,
+  MdSwitch,
+  MdCard,
+  MdButton,
+  MdSnackbar,
+} from '@desktopfriends/ui'
+import {
+  useSettings,
+  useServerDiscovery,
+  useP2P,
+  useChatHistory,
+  DEFAULT_PET_PROMPT,
+  PRESET_BACKGROUNDS,
+  type DiscoveredServer,
+} from '@desktopfriends/core'
 import { useLocalServer } from '../composables/useLocalServer'
-import { useChatHistory } from '../composables/useChatHistory'
 import { useModelUpload } from '../composables/useModelUpload'
 
 const emit = defineEmits<{

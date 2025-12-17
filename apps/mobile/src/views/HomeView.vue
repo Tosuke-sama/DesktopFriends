@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
+import { ChatInput, ChatBubble, ChatHistory } from "@desktopfriends/ui";
+import {
+  useChat,
+  useSettings,
+  useP2P,
+  useChatHistory,
+  type ChatResponse,
+  type ToolCall,
+  type PetMessage,
+  type PetInfo,
+} from "@desktopfriends/core";
 import Live2DCanvas from "../components/Live2DCanvas.vue";
-import ChatInput from "../components/ChatInput.vue";
-import ChatBubble from "../components/ChatBubble.vue";
-import ChatHistory from "../components/ChatHistory.vue";
-import { useChat, type ChatResponse } from "../composables/useChat";
-import { useSettings } from "../composables/useSettings";
-import { useP2P } from "../composables/useP2P";
-import { useChatHistory } from "../composables/useChatHistory";
 import { useKeyboard } from "../composables/useKeyboard";
-import type { ToolCall } from "../composables/useLive2DTools";
-import type { PetMessage, PetInfo } from "@desktopfriends/shared";
 
 // 组件名称，用于 KeepAlive
 defineOptions({

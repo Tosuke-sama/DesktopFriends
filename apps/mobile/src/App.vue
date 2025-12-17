@@ -1,43 +1,43 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import HomeView from './views/HomeView.vue'
-import SettingsView from './views/SettingsView.vue'
+import { ref, computed, onMounted, onUnmounted } from "vue";
+import HomeView from "./views/HomeView.vue";
+import SettingsView from "./views/SettingsView.vue";
 
-type ViewName = 'home' | 'settings'
+type ViewName = "home" | "settings";
 
-const currentView = ref<ViewName>('home')
-const previousView = ref<ViewName>('home')
+const currentView = ref<ViewName>("home");
+const previousView = ref<ViewName>("home");
 
 const transitionName = computed(() => {
   // 设置页面从右侧滑入
-  if (currentView.value === 'settings') {
-    return 'slide-left'
+  if (currentView.value === "settings") {
+    return "slide-left";
   }
   // 返回主页时从左侧滑入
-  return 'slide-right'
-})
+  return "slide-right";
+});
 
 const navigateTo = (view: ViewName) => {
-  previousView.value = currentView.value
-  currentView.value = view
-}
+  previousView.value = currentView.value;
+  currentView.value = view;
+};
 </script>
 
 <template>
   <div class="app">
     <Transition :name="transitionName" mode="out-in">
-      <KeepAlive include="HomeView">
-        <HomeView
-          v-if="currentView === 'home'"
-          key="home"
-          @open-settings="navigateTo('settings')"
-        />
-        <SettingsView
-          v-else-if="currentView === 'settings'"
-          key="settings"
-          @back="navigateTo('home')"
-        />
-      </KeepAlive>
+      <!-- <KeepAlive include="HomeView"> -->
+      <HomeView
+        v-if="currentView === 'home'"
+        key="home"
+        @open-settings="navigateTo('settings')"
+      />
+      <SettingsView
+        v-else-if="currentView === 'settings'"
+        key="settings"
+        @back="navigateTo('home')"
+      />
+      <!-- </KeepAlive> -->
     </Transition>
   </div>
 </template>
@@ -50,12 +50,13 @@ const navigateTo = (view: ViewName) => {
   box-sizing: border-box;
 }
 
-html, body {
+html,
+body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
-    Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

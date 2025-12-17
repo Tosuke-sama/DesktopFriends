@@ -71,9 +71,15 @@ importers:
       '@capacitor/keyboard':
         specifier: ^6.0.4
         version: 6.0.4(@capacitor/core@6.2.1)
+      '@desktopfriends/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@desktopfriends/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@desktopfriends/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
