@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF 阅读器 - TableFri</title>
+
+  <!-- PDF.js 官方样式 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/web/pdf_viewer.min.css">
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #525659;
+      color: white;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* 工具栏 */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      background: #323639;
+      flex-shrink: 0;
+      gap: 16px;
+    }
+
+    .file-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .file-name {
+      font-weight: 500;
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .page-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+    }
+
+    .zoom-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .zoom-controls button {
+      width: 28px;
+      height: 28px;
+      border: none;
+      border-radius: 4px;
+      background: #4a4d50;
+      color: white;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    .zoom-controls button:hover {
+      background: #5a5d60;
+    }
+
+    .zoom-level {
+      font-size: 12px;
+      min-width: 40px;
+      text-align: center;
+    }
+
+    /* 加载状态 */
+    .loading {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #4a4d50;
+      border-top-color: #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading p {
+      margin-top: 16px;
+      color: #999;
+    }
+
+    .error {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ff6b6b;
+      padding: 20px;
+      text-align: center;
+    }
+
+    /* PDF 容器 */
+    .pdf-container {
+      flex: 1;
+      overflow: auto;
+      display: flex;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .pdf-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+
+    /* 页面容器 */
+    .pdf-page {
+      position: relative;
+      background: white;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    }
+
+    .pdf-page canvas {
+      display: block;
+    }
+
+    /* 文本层样式覆盖 */
+    .textLayer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      overflow: hidden;
+      opacity: 1;
+      line-height: 1.0;
+      pointer-events: auto;
+    }
+
+    .textLayer ::selection {
+      background: rgba(102, 126, 234, 0.4);
+    }
+
+    /* 选中提示 */
+    .selection-hint {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(102, 126, 234, 0.9);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      z-index: 1000;
+    }
+
+    .selection-hint.visible {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <!-- 工具栏 -->
+  <div class="toolbar">
+    <div class="file-info">
+      <span class="file-name" id="fileName">加载中...</span>
+    </div>
+    <div class="page-info">
+      <span id="pageInfo">- / -</span>
+    </div>
+    <div class="zoom-controls">
+      <button id="zoomOut" title="缩小">-</button>
+      <span class="zoom-level" id="zoomLevel">100%</span>
+      <button id="zoomIn" title="放大">+</button>
+    </div>
+  </div>
+
+  <!-- 加载状态 -->
+  <div class="loading" id="loadingView">
+    <div class="spinner"></div>
+    <p>正在加载 PDF...</p>
+  </div>
+
+  <!-- 错误提示 -->
+  <div class="error" id="errorView" style="display: none;"></div>
+
+  <!-- PDF 容器 -->
+  <div class="pdf-container" id="pdfContainer" style="display: none;">
+    <div class="pdf-content" id="pdfContent"></div>
+  </div>
+
+  <!-- 选中提示 -->
+  <div class="selection-hint" id="selectionHint"></div>
+
+  <script type="module">
+    // 导入 PDF.js 4.x (稳定版本)
+    import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.mjs';
+
+    // 设置 worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.mjs';
+
+    // 状态
+    let pdfDoc = null;
+    let currentPage = 1;
+    let totalPages = 0;
+    let scale = 1.5;
+    let filePath = '';
+    let fileName = '';
+    let selectedText = '';
+    let selectionTimeout = null;
+    let lastSentText = '';
+
+    // 设备像素比，用于高清渲染
+    const pixelRatio = window.devicePixelRatio || 1;
+
+    // DOM 元素
+    const loadingView = document.getElementById('loadingView');
+    const errorView = document.getElementById('errorView');
+    const pdfContainer = document.getElementById('pdfContainer');
+    const pdfContent = document.getElementById('pdfContent');
+    const fileNameEl = document.getElementById('fileName');
+    const pageInfoEl = document.getElementById('pageInfo');
+    const zoomLevelEl = document.getElementById('zoomLevel');
+    const selectionHint = document.getElementById('selectionHint');
+
+    // 加载 PDF
+    async function loadPdf(path) {
+      filePath = path;
+      fileName = path.split('/').pop() || path.split('\\').pop() || 'PDF';
+      fileNameEl.textContent = fileName;
+
+      try {
+        console.log('[PdfViewer] 开始加载 PDF:', path);
+
+        // 使用 localfile:// 协议读取本地文件
+        const encodedPath = encodeURIComponent(path);
+        const response = await fetch('localfile://localhost/' + encodedPath);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+
+        console.log('[PdfViewer] PDF 数据已加载，大小:', arrayBuffer.byteLength);
+
+        // 加载 PDF
+        pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        totalPages = pdfDoc.numPages;
+
+        console.log('[PdfViewer] PDF 解析成功，页数:', totalPages);
+
+        // 渲染所有页面
+        await renderAllPages();
+
+        // 显示 PDF
+        loadingView.style.display = 'none';
+        pdfContainer.style.display = 'flex';
+
+        updatePageInfo();
+      } catch (error) {
+        console.error('[PdfViewer] 加载 PDF 失败:', error);
+        showError('加载 PDF 失败: ' + error.message);
+      }
+    }
+
+    // 渲染所有页面
+    async function renderAllPages() {
+      pdfContent.innerHTML = '';
+
+      for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+        await renderPage(pageNum);
+      }
+    }
+
+    // 渲染单个页面
+    async function renderPage(pageNum) {
+      const page = await pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale });
+
+      // 创建页面容器
+      const pageDiv = document.createElement('div');
+      pageDiv.className = 'pdf-page';
+      pageDiv.style.width = viewport.width + 'px';
+      pageDiv.style.height = viewport.height + 'px';
+      pageDiv.dataset.pageNum = pageNum;
+
+      // 创建高清 canvas
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+
+      // 使用设备像素比进行高清渲染
+      canvas.width = viewport.width * pixelRatio;
+      canvas.height = viewport.height * pixelRatio;
+      canvas.style.width = viewport.width + 'px';
+      canvas.style.height = viewport.height + 'px';
+
+      // 缩放上下文以匹配像素比
+      context.scale(pixelRatio, pixelRatio);
+
+      pageDiv.appendChild(canvas);
+
+      // 渲染页面到 canvas
+      await page.render({
+        canvasContext: context,
+        viewport: viewport
+      }).promise;
+
+      // 创建文本层容器
+      const textLayerDiv = document.createElement('div');
+      textLayerDiv.className = 'textLayer';
+      pageDiv.appendChild(textLayerDiv);
+
+      // 获取文本内容
+      const textContent = await page.getTextContent();
+
+      // 使用 PDF.js TextLayer 类
+      const textLayer = new pdfjsLib.TextLayer({
+        textContentSource: textContent,
+        container: textLayerDiv,
+        viewport: viewport,
+      });
+      await textLayer.render();
+
+      // 为文本层的 span 添加页码信息
+      textLayerDiv.querySelectorAll('span').forEach(span => {
+        span.dataset.pageNum = pageNum;
+      });
+
+      pdfContent.appendChild(pageDiv);
+    }
+
+    // 更新页面信息
+    function updatePageInfo() {
+      pageInfoEl.textContent = currentPage + ' / ' + totalPages;
+      zoomLevelEl.textContent = Math.round(scale * 100) + '%';
+    }
+
+    // 显示错误
+    function showError(message) {
+      loadingView.style.display = 'none';
+      errorView.style.display = 'flex';
+      errorView.textContent = message;
+    }
+
+    // 缩放控制
+    document.getElementById('zoomIn').addEventListener('click', async () => {
+      scale = Math.min(scale + 0.25, 3);
+      await renderAllPages();
+      updatePageInfo();
+    });
+
+    document.getElementById('zoomOut').addEventListener('click', async () => {
+      scale = Math.max(scale - 0.25, 0.5);
+      await renderAllPages();
+      updatePageInfo();
+    });
+
+    // 滚动监听 - 更新当前页码
+    pdfContainer.addEventListener('scroll', () => {
+      const pages = pdfContent.querySelectorAll('.pdf-page');
+      const scrollTop = pdfContainer.scrollTop;
+      let accHeight = 0;
+
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i];
+        if (scrollTop < accHeight + page.offsetHeight / 2) {
+          currentPage = i + 1;
+          break;
+        }
+        accHeight += page.offsetHeight + 20;
+        currentPage = i + 1;
+      }
+
+      updatePageInfo();
+    });
+
+    // 文本选择处理 - 使用 mouseup 检测选择结束
+    document.addEventListener('mouseup', () => {
+      // 防抖处理
+      if (selectionTimeout) {
+        clearTimeout(selectionTimeout);
+      }
+
+      selectionTimeout = setTimeout(() => {
+        const selection = window.getSelection();
+        const text = selection?.toString().trim();
+
+        // 最少选择 3 个字符，且不重复发送
+        if (text && text.length >= 3 && text !== lastSentText) {
+          lastSentText = text;
+          selectedText = text;
+
+          // 获取页码
+          let pageNum = currentPage;
+          if (selection && selection.anchorNode) {
+            const parent = selection.anchorNode.parentElement;
+            if (parent?.dataset?.pageNum) {
+              pageNum = parseInt(parent.dataset.pageNum, 10);
+            } else {
+              // 向上查找带有 pageNum 的父元素
+              const pageEl = parent?.closest('[data-page-num]');
+              if (pageEl) {
+                pageNum = parseInt(pageEl.dataset.pageNum, 10);
+              }
+            }
+          }
+
+          // 显示提示
+          selectionHint.textContent = `已选中 ${text.length} 个字符，正在发送给桌宠...`;
+          selectionHint.classList.add('visible');
+
+          setTimeout(() => {
+            selectionHint.classList.remove('visible');
+          }, 2000);
+
+          // 发送事件到主窗口
+          sendTextSelection(text, pageNum);
+        }
+      }, 1000); // 1秒防抖
+    });
+
+    // 清除选择时重置状态
+    document.addEventListener('selectionchange', () => {
+      const selection = window.getSelection();
+      const text = selection?.toString().trim();
+
+      // 如果选择被清除，重置允许重新选择相同内容
+      if (!text || text.length === 0) {
+        lastSentText = '';
+      }
+    });
+
+    // 发送文本选择事件到主窗口（使用通用 send-to-pet 接口）
+    async function sendTextSelection(text, page) {
+      try {
+        console.log('[PdfViewer] 准备发送消息给桌宠:', { textLength: text.length, page });
+
+        // 来源标识
+        const source = `pdf:${fileName}:page${page}`;
+
+        // 气泡显示的简短文字
+        const previewText = text.length > 30 ? text.slice(0, 30) + '...' : text;
+        const bubble = `[PDF第${page}页] 选中了「${previewText}」`;
+
+        // 发送给 LLM 的完整提示词
+        const message = `[系统提示] 主人正在阅读 PDF 文档「${fileName}」。
+
+在第 ${page} 页，主人选中了以下文字：
+「${text}」
+
+请帮助主人理解或处理这段文字。你可以：
+- 如果是外语，翻译成中文
+- 如果是专业术语，解释其含义
+- 如果是段落，总结要点
+- 如果主人有疑问，尝试回答`;
+
+        // 通过 pluginevent:// 协议发送事件（使用通用 send-to-pet 接口）
+        const eventUrl = `pluginevent://localhost/send-to-pet?message=${encodeURIComponent(message)}&bubble=${encodeURIComponent(bubble)}&source=${encodeURIComponent(source)}`;
+
+        const response = await fetch(eventUrl);
+        if (response.ok) {
+          console.log('[PdfViewer] 已发送消息给桌宠 (send-to-pet)');
+        } else {
+          console.error('[PdfViewer] 发送消息失败:', response.status);
+        }
+      } catch (error) {
+        console.error('[PdfViewer] 发送消息失败:', error);
+      }
+    }
+
+    // 从 URL 参数获取 PDF 路径
+    function getPathFromUrl() {
+      // 尝试从 URL search 参数获取
+      const urlParams = new URLSearchParams(window.location.search);
+      const pathFromSearch = urlParams.get('path');
+      if (pathFromSearch) {
+        return decodeURIComponent(pathFromSearch);
+      }
+
+      // 尝试直接从完整 URL 解析
+      const fullUrl = window.location.href;
+      const pathMatch = fullUrl.match(/[?&]path=([^&]+)/);
+      if (pathMatch) {
+        return decodeURIComponent(pathMatch[1]);
+      }
+
+      return null;
+    }
+
+    // 初始化
+    async function init() {
+      console.log('[PdfViewer] 初始化开始 (PDF.js 4.8.69)');
+      console.log('[PdfViewer] 当前 URL:', window.location.href);
+      console.log('[PdfViewer] 设备像素比:', pixelRatio);
+
+      // 检查 URL 参数
+      const pathFromUrl = getPathFromUrl();
+      if (pathFromUrl) {
+        console.log('[PdfViewer] 从 URL 参数加载:', pathFromUrl);
+        loadPdf(pathFromUrl);
+        return;
+      }
+
+      // 尝试使用 Tauri API
+      try {
+        if (window.__TAURI__ && window.__TAURI__.event && typeof window.__TAURI__.event.listen === 'function') {
+          await window.__TAURI__.event.listen('plugin-window-init', (event) => {
+            console.log('[PdfViewer] 收到初始化数据:', event.payload);
+            if (event.payload && event.payload.path) {
+              loadPdf(event.payload.path);
+            }
+          });
+          console.log('[PdfViewer] 已注册事件监听');
+        } else {
+          console.log('[PdfViewer] Tauri API 不可用');
+          showError('无法获取 PDF 路径');
+        }
+      } catch (error) {
+        console.error('[PdfViewer] 初始化失败:', error);
+        showError('初始化失败: ' + error.message);
+      }
+    }
+
+    // 启动
+    init();
+  </script>
+</body>
+</html>

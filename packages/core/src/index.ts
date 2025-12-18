@@ -15,7 +15,7 @@ export { useWebSocket } from './composables/useWebSocket'
 export type { ChatMessage } from './types'
 export type { Live2DTransform } from './composables/useSettings'
 export type { WebSocketOptions, WebSocketMessage, WebSocketStatus } from './composables/useWebSocket'
-export type { ChatResponse } from './composables/useChat'
+export type { ChatResponse, ExternalToolDefinition, ExternalToolExecutor } from './composables/useChat'
 export type { ToolCall } from './composables/useLive2DTools'
 export type { DiscoveredServer } from './composables/useServerDiscovery'
 

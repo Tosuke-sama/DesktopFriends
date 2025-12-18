@@ -1,0 +1,16 @@
+[package]
+name = "pdf-reader-plugin"
+version = "1.0.0"
+edition = "2021"
+description = "TableFri PDF 文档阅读器插件"
+authors = ["TableFri"]
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+tablefri-plugin-api = { path = "../../tablefri-plugin-api" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+lopdf = "0.32"

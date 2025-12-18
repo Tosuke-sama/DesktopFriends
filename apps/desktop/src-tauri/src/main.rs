@@ -1,18 +1,48 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod plugins;
+
 #[cfg(target_os = "macos")]
 use cocoa::appkit::{NSWindow, NSWindowStyleMask};
 #[cfg(target_os = "macos")]
 use cocoa::base::id;
 
-use tauri::Manager;
+use plugins::PluginManager;
+use std::sync::Mutex;
+use tauri::{GlobalShortcutManager, Manager};
 
 #[derive(serde::Serialize)]
 struct CursorPosition {
     x: f64,
     y: f64,
     in_window: bool,
+}
+
+/// 文件打开事件
+#[derive(Clone, serde::Serialize)]
+struct FileOpenEvent {
+    path: String,
+    file_type: String,
+    file_name: String,
+}
+
+/// 文本选择事件
+#[derive(Clone, serde::Serialize)]
+struct TextSelectEvent {
+    text: String,
+    source: String,
+}
+
+/// 插件发送消息给桌宠事件（通用接口）
+#[derive(Clone, serde::Serialize)]
+struct PluginSendToPetEvent {
+    /// 发送给 LLM 的系统提示词
+    message: String,
+    /// 显示在气泡中的文字（可选）
+    bubble: Option<String>,
+    /// 来源标识（如 "pdf:filename.pdf:page1"）
+    source: String,
 }
 
 #[tauri::command]
@@ -61,10 +91,455 @@ fn get_cursor_position(window: tauri::Window) -> CursorPosition {
     }
 }
 
+/// 获取剪贴板文本
+#[tauri::command]
+fn get_clipboard_text() -> Result<String, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard.get_text().map_err(|e| e.to_string())
+}
+
+/// 打开插件窗口
+///
+/// 参数:
+/// - plugin_id: 插件 ID
+/// - window_name: 窗口名称（对应 manifest 中的 ui.windows 配置）
+/// - title: 窗口标题
+/// - data: 传递给窗口的初始数据
+#[tauri::command]
+async fn open_plugin_window(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    window_name: String,
+    title: Option<String>,
+    data: Option<serde_json::Value>,
+) -> Result<String, String> {
+    use std::sync::Mutex;
+
+    // 获取插件管理器
+    let manager_state = app.state::<Mutex<PluginManager>>();
+    let manager = manager_state.lock().map_err(|e| format!("锁定插件管理器失败: {}", e))?;
+
+    // 获取窗口配置
+    let (plugin_dir, window_config) = manager
+        .get_plugin_window_config(&plugin_id, &window_name)
+        .map_err(|e| e.to_string())?;
+
+    // 获取 HTML 路径
+    let html_path = window_config.get("path")
+        .and_then(|p| p.as_str())
+        .ok_or_else(|| "窗口配置缺少 path 字段".to_string())?;
+
+    // 构建完整的 HTML 文件路径
+    let full_html_path = plugin_dir.join(html_path);
+    if !full_html_path.exists() {
+        return Err(format!("窗口 HTML 文件不存在: {:?}", full_html_path));
+    }
+
+    // 获取窗口尺寸配置
+    let width = window_config.get("width")
+        .and_then(|w| w.as_f64())
+        .unwrap_or(900.0);
+    let height = window_config.get("height")
+        .and_then(|h| h.as_f64())
+        .unwrap_or(700.0);
+
+    // 获取默认窗口标题
+    let default_title = window_config.get("title")
+        .and_then(|t| t.as_str())
+        .unwrap_or("插件窗口")
+        .to_string();
+
+    drop(manager); // 释放锁
+
+    // 生成唯一的窗口标签
+    let window_label = format!("plugin-{}-{}-{}", plugin_id, window_name,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0));
+
+    // 窗口标题
+    let window_title = title.unwrap_or(default_title);
+
+    // 使用自定义 plugin:// 协议加载插件的 HTML
+    // 路径格式: plugin://localhost/{plugin_id}/{html_path}?path={encoded_pdf_path}
+    let mut plugin_url = format!("plugin://localhost/{}/{}", plugin_id, html_path);
+
+    // 如果 data 中包含 path，将其作为 URL 参数传递
+    if let Some(ref init_data) = data {
+        if let Some(path) = init_data.get("path").and_then(|p| p.as_str()) {
+            let encoded_path = urlencoding::encode(path);
+            plugin_url = format!("{}?path={}", plugin_url, encoded_path);
+        }
+    }
+
+    println!("[PluginWindow] 创建窗口: {} -> {}", window_label, plugin_url);
+
+    // 创建窗口
+    let _window = tauri::WindowBuilder::new(
+        &app,
+        &window_label,
+        tauri::WindowUrl::External(plugin_url.parse().map_err(|e| format!("无效的 URL: {}", e))?)
+    )
+    .title(window_title)
+    .inner_size(width, height)
+    .min_inner_size(400.0, 300.0)
+    .resizable(true)
+    .center()
+    .build()
+    .map_err(|e| format!("创建窗口失败: {}", e))?;
+
+    // 同时也尝试发送初始数据给窗口（作为后备）
+    if let Some(init_data) = data {
+        let app_clone = app.clone();
+        let window_label_clone = window_label.clone();
+        tauri::async_runtime::spawn(async move {
+            // 等待窗口加载
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+            // 发送初始化数据
+            if let Err(e) = app_clone.emit_to(&window_label_clone, "plugin-window-init", init_data) {
+                eprintln!("[PluginWindow] 发送初始化数据失败: {}", e);
+            } else {
+                println!("[PluginWindow] 已发送初始化数据到窗口: {}", window_label_clone);
+            }
+        });
+    }
+
+    println!("[PluginWindow] 已创建插件窗口: {} ({})", window_label, plugin_id);
+    Ok(window_label)
+}
+
+/// 处理文件打开（供外部调用或内部触发）
+fn emit_file_open_event(app_handle: &tauri::AppHandle, file_path: &str) {
+    let path = std::path::Path::new(file_path);
+
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let file_type = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("unknown")
+        .to_lowercase();
+
+    let event = FileOpenEvent {
+        path: file_path.to_string(),
+        file_type,
+        file_name,
+    };
+
+    println!("[FileOpen] 文件打开事件: {:?}", event.path);
+
+    // 发送事件到前端
+    if let Err(e) = app_handle.emit_all("file-open", event) {
+        eprintln!("[FileOpen] 发送事件失败: {}", e);
+    }
+}
+
+/// 处理文本选择事件
+fn emit_text_select_event(app_handle: &tauri::AppHandle, text: &str, source: &str) {
+    let event = TextSelectEvent {
+        text: text.to_string(),
+        source: source.to_string(),
+    };
+
+    println!("[TextSelect] 文本选择事件: {} 字符", text.len());
+
+    // 发送事件到前端
+    if let Err(e) = app_handle.emit_all("text-select", event) {
+        eprintln!("[TextSelect] 发送事件失败: {}", e);
+    }
+}
+
+/// 处理插件发送消息给桌宠事件（通用接口）
+fn emit_plugin_send_to_pet_event(app_handle: &tauri::AppHandle, message: &str, bubble: Option<&str>, source: &str) {
+    let event = PluginSendToPetEvent {
+        message: message.to_string(),
+        bubble: bubble.map(|s| s.to_string()),
+        source: source.to_string(),
+    };
+
+    println!("[PluginSendToPet] 插件消息事件: {} 字符, 来源: {}", message.len(), source);
+
+    // 发送事件到前端
+    if let Err(e) = app_handle.emit_all("plugin-send-to-pet", event) {
+        eprintln!("[PluginSendToPet] 发送事件失败: {}", e);
+    }
+}
+
+/// 注册全局快捷键
+fn register_global_shortcuts(app_handle: tauri::AppHandle) {
+    let mut shortcut_manager = app_handle.global_shortcut_manager();
+
+    // 注册 Option+Q (macOS) / Alt+Q (Windows) 作为划词快捷键
+    let app_handle_clone = app_handle.clone();
+    let shortcut = if cfg!(target_os = "macos") {
+        "Option+Q"
+    } else {
+        "Alt+Q"
+    };
+
+    match shortcut_manager.register(shortcut, move || {
+        println!("[Shortcut] 快捷键触发: {}", shortcut);
+
+        // 获取剪贴板内容
+        match arboard::Clipboard::new() {
+            Ok(mut clipboard) => {
+                match clipboard.get_text() {
+                    Ok(text) if !text.is_empty() => {
+                        emit_text_select_event(&app_handle_clone, &text, "clipboard");
+                    }
+                    Ok(_) => {
+                        println!("[Shortcut] 剪贴板为空");
+                    }
+                    Err(e) => {
+                        eprintln!("[Shortcut] 读取剪贴板失败: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[Shortcut] 创建剪贴板实例失败: {}", e);
+            }
+        }
+    }) {
+        Ok(_) => println!("[Shortcut] 已注册全局快捷键: {}", shortcut),
+        Err(e) => eprintln!("[Shortcut] 注册快捷键失败: {}", e),
+    }
+}
+
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![get_cursor_position])
+        .invoke_handler(tauri::generate_handler![
+            get_cursor_position,
+            get_clipboard_text,
+            open_plugin_window,
+            // 插件系统命令
+            plugins::plugin_install,
+            plugins::plugin_uninstall,
+            plugins::plugin_enable,
+            plugins::plugin_disable,
+            plugins::plugin_list,
+            plugins::plugin_get,
+            plugins::plugin_get_tools,
+            plugins::plugin_execute_tool,
+            plugins::plugin_trigger_hook,
+            plugins::plugin_read_ui,
+            plugins::plugin_set_config,
+            plugins::plugin_refresh,
+        ])
+        // 注册插件文件协议 plugin://
+        .register_uri_scheme_protocol("plugin", |app, request| {
+            let uri = request.uri();
+            // URI 格式: plugin://localhost/{plugin_id}/{path}?query=...
+            let full_path = uri.replace("plugin://localhost/", "");
+
+            // 分离路径和查询参数（查询参数由前端 JavaScript 处理）
+            let path = full_path.split('?').next().unwrap_or(&full_path);
+
+            // 获取插件目录
+            let app_data_dir = app
+                .path_resolver()
+                .app_data_dir()
+                .expect("无法获取应用数据目录");
+            let plugins_dir = app_data_dir.join("plugins");
+
+            // 构建完整文件路径
+            let file_path = plugins_dir.join(path);
+
+            println!("[PluginProtocol] 请求文件: {} -> {:?}", path, file_path);
+
+            if file_path.exists() {
+                match std::fs::read(&file_path) {
+                    Ok(content) => {
+                        // 根据文件扩展名确定 MIME 类型
+                        let mime_type = match file_path.extension().and_then(|e| e.to_str()) {
+                            Some("html") | Some("htm") => "text/html",
+                            Some("js") | Some("mjs") => "application/javascript",
+                            Some("css") => "text/css",
+                            Some("json") => "application/json",
+                            Some("png") => "image/png",
+                            Some("jpg") | Some("jpeg") => "image/jpeg",
+                            Some("svg") => "image/svg+xml",
+                            Some("woff") => "font/woff",
+                            Some("woff2") => "font/woff2",
+                            Some("pdf") => "application/pdf",
+                            _ => "application/octet-stream",
+                        };
+
+                        tauri::http::ResponseBuilder::new()
+                            .status(200)
+                            .header("Content-Type", mime_type)
+                            .header("Access-Control-Allow-Origin", "*")
+                            .body(content)
+                    }
+                    Err(e) => {
+                        eprintln!("[PluginProtocol] 读取文件失败: {}", e);
+                        tauri::http::ResponseBuilder::new()
+                            .status(500)
+                            .body(format!("读取文件失败: {}", e).into_bytes())
+                    }
+                }
+            } else {
+                eprintln!("[PluginProtocol] 文件不存在: {:?}", file_path);
+                tauri::http::ResponseBuilder::new()
+                    .status(404)
+                    .body(format!("文件不存在: {}", path).into_bytes())
+            }
+        })
+        // 注册本地文件协议 localfile://（用于加载本地 PDF 等文件）
+        .register_uri_scheme_protocol("localfile", |_app, request| {
+            let uri = request.uri();
+            // URI 格式: localfile://localhost/{encoded_path}
+            let encoded_path = uri.replace("localfile://localhost/", "");
+            // URL 解码路径
+            let path = urlencoding::decode(&encoded_path)
+                .map(|s| s.into_owned())
+                .unwrap_or(encoded_path);
+
+            println!("[LocalFileProtocol] 请求文件: {}", path);
+
+            let file_path = std::path::Path::new(&path);
+
+            if file_path.exists() {
+                match std::fs::read(file_path) {
+                    Ok(content) => {
+                        // 根据文件扩展名确定 MIME 类型
+                        let mime_type = match file_path.extension().and_then(|e| e.to_str()) {
+                            Some("pdf") => "application/pdf",
+                            Some("png") => "image/png",
+                            Some("jpg") | Some("jpeg") => "image/jpeg",
+                            Some("gif") => "image/gif",
+                            Some("txt") => "text/plain",
+                            Some("json") => "application/json",
+                            _ => "application/octet-stream",
+                        };
+
+                        tauri::http::ResponseBuilder::new()
+                            .status(200)
+                            .header("Content-Type", mime_type)
+                            .header("Access-Control-Allow-Origin", "*")
+                            .body(content)
+                    }
+                    Err(e) => {
+                        eprintln!("[LocalFileProtocol] 读取文件失败: {}", e);
+                        tauri::http::ResponseBuilder::new()
+                            .status(500)
+                            .body(format!("读取文件失败: {}", e).into_bytes())
+                    }
+                }
+            } else {
+                eprintln!("[LocalFileProtocol] 文件不存在: {:?}", file_path);
+                tauri::http::ResponseBuilder::new()
+                    .status(404)
+                    .body(format!("文件不存在: {}", path).into_bytes())
+            }
+        })
+        // 注册插件事件协议 pluginevent://（用于插件窗口发送事件）
+        .register_uri_scheme_protocol("pluginevent", |app, request| {
+            let uri = request.uri();
+            // URI 格式: pluginevent://localhost/{event-type}?param=xxx
+            let path = uri.replace("pluginevent://localhost/", "");
+
+            // 分离路径和查询参数
+            let parts: Vec<&str> = path.splitn(2, '?').collect();
+            let event_type = parts.get(0).unwrap_or(&"");
+            let query = parts.get(1).unwrap_or(&"");
+
+            println!("[PluginEvent] 收到事件: {} query={}", event_type, query);
+
+            // 解析查询参数
+            let params: std::collections::HashMap<String, String> = query
+                .split('&')
+                .filter_map(|pair| {
+                    let mut iter = pair.splitn(2, '=');
+                    let key = iter.next()?;
+                    let value = iter.next().unwrap_or("");
+                    Some((key.to_string(), urlencoding::decode(value).unwrap_or_default().into_owned()))
+                })
+                .collect();
+
+            match *event_type {
+                // 通用的发送消息给桌宠接口（推荐使用）
+                "send-to-pet" => {
+                    let message = params.get("message").cloned().unwrap_or_default();
+                    let bubble = params.get("bubble").cloned();
+                    let source = params.get("source").cloned().unwrap_or_else(|| "plugin".to_string());
+
+                    if !message.is_empty() {
+                        emit_plugin_send_to_pet_event(&app, &message, bubble.as_deref(), &source);
+                    }
+
+                    tauri::http::ResponseBuilder::new()
+                        .status(200)
+                        .header("Content-Type", "application/json")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(r#"{"success":true}"#.as_bytes().to_vec())
+                }
+
+                // 文本选择事件（保留向后兼容）
+                "text-select" => {
+                    let text = params.get("text").cloned().unwrap_or_default();
+                    let source = params.get("source").cloned().unwrap_or_else(|| "plugin".to_string());
+
+                    if !text.is_empty() {
+                        emit_text_select_event(&app, &text, &source);
+                    }
+
+                    tauri::http::ResponseBuilder::new()
+                        .status(200)
+                        .header("Content-Type", "application/json")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(r#"{"success":true}"#.as_bytes().to_vec())
+                }
+
+                _ => {
+                    tauri::http::ResponseBuilder::new()
+                        .status(400)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(r#"{"error":"unknown event type"}"#.as_bytes().to_vec())
+                }
+            }
+        })
         .setup(|app| {
+            // 初始化插件系统
+            let app_data_dir = app
+                .path_resolver()
+                .app_data_dir()
+                .expect("无法获取应用数据目录");
+            let plugins_dir = app_data_dir.join("plugins");
+
+            match PluginManager::new(plugins_dir) {
+                Ok(manager) => {
+                    app.manage(Mutex::new(manager));
+                    println!("插件系统初始化成功");
+                }
+                Err(e) => {
+                    eprintln!("插件系统初始化失败: {}", e);
+                }
+            }
+
+            // 注册全局快捷键
+            register_global_shortcuts(app.handle());
+
+            // 处理启动时传入的文件参数
+            let args: Vec<String> = std::env::args().collect();
+            if args.len() > 1 {
+                // 第一个参数是程序路径，从第二个开始是文件路径
+                for arg in args.iter().skip(1) {
+                    // 跳过以 - 开头的参数（命令行选项）
+                    if !arg.starts_with('-') {
+                        let path = std::path::Path::new(arg);
+                        if path.exists() && path.is_file() {
+                            emit_file_open_event(&app.handle(), arg);
+                        }
+                    }
+                }
+            }
+
             #[cfg(target_os = "macos")]
             {
                 let window = app.get_window("main").unwrap();
@@ -85,6 +560,17 @@ fn main() {
                 }
             }
             Ok(())
+        })
+        // 处理文件拖拽到应用图标打开
+        .on_window_event(|event| {
+            if let tauri::WindowEvent::FileDrop(tauri::FileDropEvent::Dropped(paths)) = event.event() {
+                let app_handle = event.window().app_handle();
+                for path in paths {
+                    if let Some(path_str) = path.to_str() {
+                        emit_file_open_event(&app_handle, path_str);
+                    }
+                }
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

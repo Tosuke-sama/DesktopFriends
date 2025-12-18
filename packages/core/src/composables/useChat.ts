@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
 import type { LLMConfig } from '@desktopfriends/shared'
 import {
   ToolCall,
@@ -17,6 +17,25 @@ export interface ChatResponse {
   thinking: string | null // 内心独白
   toolCalls: ToolCall[]
 }
+
+// 外部工具定义（用于插件系统）
+export interface ExternalToolDefinition {
+  /** 工具来源（如插件 ID） */
+  source: string
+  /** 工具名称 */
+  name: string
+  /** 工具描述 */
+  description: string
+  /** 参数 JSON Schema */
+  parameters: Record<string, unknown>
+}
+
+// 外部工具执行器类型
+export type ExternalToolExecutor = (
+  source: string,
+  toolName: string,
+  args: Record<string, unknown>
+) => Promise<string>
 
 // 扩展消息类型，支持 tool 调用
 interface ExtendedMessage {
@@ -51,6 +70,10 @@ export function useChat(config?: Partial<LLMConfig>) {
   const availableMotions = ref<string[]>([])
   const availableExpressions = ref<string[]>([])
 
+  // 外部工具系统（用于插件扩展）
+  const externalTools = shallowRef<ExternalToolDefinition[]>([])
+  const externalToolExecutor = ref<ExternalToolExecutor | null>(null)
+
   const setConfig = (newConfig: Partial<LLMConfig>) => {
     llmConfig.value = { ...llmConfig.value, ...newConfig }
   }
@@ -73,36 +96,97 @@ export function useChat(config?: Partial<LLMConfig>) {
     availableExpressions.value = expressions
   }
 
+  // 注册外部工具（用于插件系统）
+  const registerExternalTools = (tools: ExternalToolDefinition[]) => {
+    externalTools.value = tools
+  }
+
+  // 设置外部工具执行器
+  const setExternalToolExecutor = (executor: ExternalToolExecutor | null) => {
+    externalToolExecutor.value = executor
+  }
+
+  // 将外部工具转换为 OpenAI 格式
+  const convertExternalToolsToOpenAI = (tools: ExternalToolDefinition[]) => {
+    return tools.map(tool => ({
+      type: 'function' as const,
+      function: {
+        name: `ext_${tool.source}_${tool.name}`,
+        description: `[${tool.source}] ${tool.description}`,
+        parameters: tool.parameters,
+      },
+    }))
+  }
+
+  // 将外部工具转换为 Claude 格式
+  const convertExternalToolsToClaude = (tools: ExternalToolDefinition[]) => {
+    return tools.map(tool => ({
+      name: `ext_${tool.source}_${tool.name}`,
+      description: `[${tool.source}] ${tool.description}`,
+      input_schema: tool.parameters,
+    }))
+  }
+
   // 获取当前使用的工具定义
   const getCurrentTools = (provider: string) => {
     const motions = availableMotions.value
     const expressions = availableExpressions.value
+    const extTools = externalTools.value
+
+    // Live2D 工具
+    let live2dTools: unknown[]
 
     // 如果有动态的动作/表情，使用动态生成的工具
     if (motions.length > 0 || expressions.length > 0) {
       if (provider === 'claude') {
-        return generateClaudeTools(motions, expressions)
+        live2dTools = generateClaudeTools(motions, expressions)
       } else {
-        return generateOpenAITools(motions, expressions)
+        live2dTools = generateOpenAITools(motions, expressions)
       }
+    } else {
+      // 否则使用默认的静态工具
+      live2dTools = provider === 'claude' ? CLAUDE_TOOLS : OPENAI_TOOLS
     }
 
-    // 否则使用默认的静态工具
-    return provider === 'claude' ? CLAUDE_TOOLS : OPENAI_TOOLS
+    // 如果有外部工具，合并到工具列表
+    if (extTools.length > 0) {
+      const formattedExtTools = provider === 'claude'
+        ? convertExternalToolsToClaude(extTools)
+        : convertExternalToolsToOpenAI(extTools)
+      return [...live2dTools, ...formattedExtTools]
+    }
+
+    return live2dTools
   }
 
   // 获取当前的工具使用提示词
   const getCurrentToolPrompt = () => {
     const motions = availableMotions.value
     const expressions = availableExpressions.value
+    const extTools = externalTools.value
 
-    // 如果有动态的动作/表情，使用动态生成的提示词
+    // 基础 Live2D 工具提示词
+    let basePrompt: string
     if (motions.length > 0 || expressions.length > 0) {
-      return generateToolUsagePrompt(motions, expressions)
+      basePrompt = generateToolUsagePrompt(motions, expressions)
+    } else {
+      basePrompt = TOOL_USAGE_PROMPT
     }
 
-    // 否则使用默认的静态提示词
-    return TOOL_USAGE_PROMPT
+    // 如果有外部工具，添加外部工具说明
+    if (extTools.length > 0) {
+      const extToolsDesc = extTools.map(tool =>
+        `- ${tool.name}: ${tool.description}`
+      ).join('\n')
+
+      return `${basePrompt}
+
+【扩展工具】
+以下是可用的扩展工具，根据需要调用：
+${extToolsDesc}`
+    }
+
+    return basePrompt
   }
 
   // 获取系统提示词
@@ -148,8 +232,32 @@ export function useChat(config?: Partial<LLMConfig>) {
   }
 
   // 执行工具调用（返回执行结果）
-  const executeToolCall = (toolCall: ToolCall): string => {
-    // 这里只返回确认信息，实际的动作执行在 HomeView 中
+  const executeToolCall = async (toolCall: ToolCall): Promise<string> => {
+    // 检查是否为外部工具（插件工具）
+    if (toolCall.name.startsWith('ext_')) {
+      // 解析外部工具名称: ext_{source}_{toolName}
+      const parts = toolCall.name.substring(4).split('_')
+      if (parts.length >= 2) {
+        const source = parts[0]
+        const toolName = parts.slice(1).join('_')
+
+        // 使用外部执行器
+        if (externalToolExecutor.value) {
+          try {
+            return await externalToolExecutor.value(
+              source,
+              toolName,
+              toolCall.arguments as Record<string, unknown>
+            )
+          } catch (e) {
+            return `工具 ${toolName} 执行失败: ${e instanceof Error ? e.message : String(e)}`
+          }
+        }
+        return `外部工具 ${toolName} 无法执行（未设置执行器）`
+      }
+    }
+
+    // Live2D 工具
     if (toolCall.name === 'playMotion') {
       return `已执行动作: ${toolCall.arguments.name}`
     }
@@ -200,7 +308,7 @@ export function useChat(config?: Partial<LLMConfig>) {
 
         // 添加工具执行结果
         for (const tc of assistantMessage.tool_calls!) {
-          const toolResult = executeToolCall({
+          const toolResult = await executeToolCall({
             name: tc.function.name,
             arguments: JSON.parse(tc.function.arguments),
           })
@@ -369,6 +477,84 @@ export function useChat(config?: Partial<LLMConfig>) {
     return parseResponse(llmConfig.value.provider, data)
   }
 
+  // 解析 DeepSeek 原生 DSML 格式的工具调用
+  const parseDSMLToolCalls = (content: string): { toolCalls: ToolCall[], cleanContent: string } => {
+    const toolCalls: ToolCall[] = []
+
+    // DSML 格式示例:
+    // <｜DSML｜function_calls>
+    // <｜DSML｜invoke name="playMotion">
+    // <｜DSML｜parameter name="name">wave<｜DSML｜/parameter>
+    // 或者
+    // <｜DSML｜parameter name="name" string="wave"/>
+
+    // 匹配整个 DSML 块
+    const dsmlBlockPattern = /<｜DSML｜function_calls>[\s\S]*?(?:<｜DSML｜\/function_calls>|$)/gi
+
+    // 匹配单个 invoke
+    const invokePattern = /<｜DSML｜invoke\s+name=["']?([^"'>\s]+)["']?>([\s\S]*?)(?:<｜DSML｜\/invoke>|(?=<｜DSML｜invoke)|$)/gi
+
+    // 匹配参数 - 两种格式
+    // 格式1: <｜DSML｜parameter name="x">value</｜DSML｜parameter>
+    // 格式2: <｜DSML｜parameter name="x" string="value"/>
+    const paramPattern1 = /<｜DSML｜parameter\s+name=["']?([^"'>\s]+)["']?>([^<]*)<｜DSML｜\/parameter>/gi
+    const paramPattern2 = /<｜DSML｜parameter\s+name=["']?([^"'>\s]+)["']?\s+(?:string|value)=\\?"([^"\\]*)\\?"/gi
+
+    let cleanContent = content
+
+    // 查找所有 DSML 块
+    const dsmlBlocks = content.match(dsmlBlockPattern)
+    if (dsmlBlocks) {
+      for (const block of dsmlBlocks) {
+        // 移除 DSML 块
+        cleanContent = cleanContent.replace(block, '')
+
+        // 解析 invoke
+        let invokeMatch
+        invokePattern.lastIndex = 0
+        while ((invokeMatch = invokePattern.exec(block)) !== null) {
+          const toolName = invokeMatch[1]
+          const invokeContent = invokeMatch[2] || block
+          const args: Record<string, unknown> = {}
+
+          // 解析参数 - 格式1
+          let paramMatch
+          paramPattern1.lastIndex = 0
+          while ((paramMatch = paramPattern1.exec(invokeContent)) !== null) {
+            args[paramMatch[1]] = paramMatch[2].trim()
+          }
+
+          // 解析参数 - 格式2
+          paramPattern2.lastIndex = 0
+          while ((paramMatch = paramPattern2.exec(invokeContent)) !== null) {
+            args[paramMatch[1]] = paramMatch[2].trim()
+          }
+
+          // 如果没有匹配到参数，尝试更宽松的匹配
+          if (Object.keys(args).length === 0) {
+            const looseParamPattern = /name=\\?"([^"\\]+)\\?"/g
+            let looseMatch
+            const names: string[] = []
+            while ((looseMatch = looseParamPattern.exec(invokeContent)) !== null) {
+              names.push(looseMatch[1])
+            }
+            // 第一个是工具名，后面的可能是参数值
+            if (names.length > 1) {
+              args['name'] = names[1]
+            }
+          }
+
+          if (toolName) {
+            toolCalls.push({ name: toolName, arguments: args })
+            console.log('[DSML Parser] 解析到工具调用:', toolName, args)
+          }
+        }
+      }
+    }
+
+    return { toolCalls, cleanContent: cleanContent.trim() }
+  }
+
   // 解析不同 API 的响应
   const parseResponse = (provider: string, data: any): ChatResponse => {
     const toolCalls: ToolCall[] = []
@@ -391,12 +577,23 @@ export function useChat(config?: Partial<LLMConfig>) {
       const message = data.choices[0].message
       content = message.content || ''
 
+      // 标准 tool_calls 格式
       if (message.tool_calls) {
         for (const tc of message.tool_calls) {
           toolCalls.push({
             name: tc.function.name,
             arguments: JSON.parse(tc.function.arguments),
           })
+        }
+      }
+
+      // 检查 DeepSeek DSML 格式（可能在 content 中）
+      if (content.includes('<｜DSML｜')) {
+        console.log('[DSML] 检测到 DSML 格式，尝试解析...')
+        const dsmlResult = parseDSMLToolCalls(content)
+        if (dsmlResult.toolCalls.length > 0) {
+          toolCalls.push(...dsmlResult.toolCalls)
+          content = dsmlResult.cleanContent
         }
       }
     }
@@ -464,5 +661,8 @@ export function useChat(config?: Partial<LLMConfig>) {
     setEnableTools,
     setAvailableActions,
     clearHistory,
+    // 外部工具系统
+    registerExternalTools,
+    setExternalToolExecutor,
   }
 }

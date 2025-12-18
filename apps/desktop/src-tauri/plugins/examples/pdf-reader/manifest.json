@@ -1,0 +1,79 @@
+{
+  "id": "pdf-reader",
+  "name": "PDF 阅读器",
+  "version": "1.0.0",
+  "author": "TableFri",
+  "description": "PDF 文档阅读插件，支持打开、阅读和搜索 PDF 文档内容",
+  "main": "libpdf_reader_plugin.dylib",
+  "ui": {
+    "panel": "ui/PdfPanel.vue",
+    "position": "sidebar",
+    "windows": {
+      "viewer": {
+        "path": "ui/viewer.html",
+        "title": "PDF 阅读器",
+        "width": 900,
+        "height": 700
+      }
+    }
+  },
+  "permissions": [
+    "fs:read"
+  ],
+  "tools": [
+    {
+      "name": "open_pdf",
+      "description": "打开 PDF 文件",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "PDF 文件路径"
+          }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "read_pdf_page",
+      "description": "读取 PDF 指定页面的文本内容",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "页码（从 1 开始）"
+          }
+        },
+        "required": ["page"]
+      }
+    },
+    {
+      "name": "get_pdf_info",
+      "description": "获取当前 PDF 文档信息"
+    },
+    {
+      "name": "search_pdf",
+      "description": "在 PDF 中搜索文本",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "搜索关键词"
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "get_selected_text",
+      "description": "获取用户选中的文本"
+    }
+  ],
+  "hooks": [
+    "on_file_open",
+    "on_text_select"
+  ]
+}

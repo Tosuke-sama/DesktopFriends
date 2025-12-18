@@ -2,6 +2,10 @@
 import { ref, computed, onMounted } from 'vue'
 import { useSettings, useServerDiscovery, useP2P, useChatHistory, DEFAULT_PET_PROMPT, PRESET_BACKGROUNDS } from '@desktopfriends/core'
 import { useModelUpload } from '../composables/useModelUpload'
+import PluginManager from '../plugins/PluginManager.vue'
+
+// 插件管理器显示状态
+const showPluginManager = ref(false)
 
 const emit = defineEmits<{
   back: []
@@ -746,6 +750,22 @@ const handleClearBackground = () => {
         </button>
       </div>
 
+      <!-- 插件 -->
+      <div class="card">
+        <div class="card-title">插件</div>
+        <div class="plugin-info">
+          <p>通过插件扩展应用功能，为 AI 宠物添加新的能力。</p>
+        </div>
+        <div class="button-row">
+          <button class="btn primary" @click="showPluginManager = true">
+            <svg viewBox="0 0 24 24" fill="currentColor" style="width: 18px; height: 18px; margin-right: 6px;">
+              <path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/>
+            </svg>
+            管理插件
+          </button>
+        </div>
+      </div>
+
       <!-- 操作按钮 -->
       <div class="actions">
         <button class="btn secondary" @click="handleReset">重置所有设置</button>
@@ -796,6 +816,15 @@ const handleClearBackground = () => {
               <button class="btn danger" @click="handleDeleteModel">删除</button>
             </div>
           </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 插件管理器 -->
+    <Teleport to="body">
+      <Transition name="plugin-manager">
+        <div v-if="showPluginManager" class="plugin-manager-overlay">
+          <PluginManager @close="showPluginManager = false" />
         </div>
       </Transition>
     </Teleport>
@@ -1642,5 +1671,43 @@ const handleClearBackground = () => {
   width: 16px;
   height: 16px;
   color: #ef5350;
+}
+
+/* Plugin Info */
+.plugin-info {
+  margin-bottom: 12px;
+}
+
+.plugin-info p {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.5;
+}
+
+/* Plugin Manager Overlay */
+.plugin-manager-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+}
+
+/* Plugin Manager Transition */
+.plugin-manager-enter-active,
+.plugin-manager-leave-active {
+  transition: all 0.3s ease;
+}
+
+.plugin-manager-enter-from {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+.plugin-manager-leave-to {
+  opacity: 0;
+  transform: translateX(100%);
 }
 </style>

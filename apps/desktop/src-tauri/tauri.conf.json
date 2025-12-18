@@ -15,7 +15,7 @@
       "all": false,
       "fs": {
         "all": true,
-        "scope": ["$APPDATA/**", "$DOCUMENT/**", "$HOME/.tablefri/**"]
+        "scope": ["$APPDATA/**", "$DOCUMENT/**", "$HOME/.tablefri/**", "**/*"]
       },
       "window": {
         "all": true
@@ -28,6 +28,12 @@
       },
       "shell": {
         "open": true
+      },
+      "globalShortcut": {
+        "all": true
+      },
+      "clipboard": {
+        "all": true
       }
     },
     "bundle": {
@@ -64,7 +70,15 @@
       }
     },
     "security": {
-      "csp": null
+      "csp": null,
+      "dangerousRemoteDomainIpcAccess": [
+        {
+          "domain": "localhost",
+          "enableTauriAPI": true,
+          "windows": ["plugin-*"],
+          "plugins": ["event"]
+        }
+      ]
     },
     "windows": [
       {

@@ -17,14 +17,121 @@ import { isDesktopPlatform } from "@desktopfriends/platform";
 import type { PetMessage, PetInfo } from "@desktopfriends/shared";
 import { appWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/tauri";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import WindowControls from "./components/WindowControls.vue";
 import SettingsView from "./views/SettingsView.vue";
+import { usePluginTools } from "./composables/usePluginTools";
+import { usePluginSystem } from "./plugins/usePluginSystem";
+import {
+  useSystemEvents,
+  generateFileOpenPrompt,
+  generateTextSelectPrompt,
+  type FileOpenEvent,
+  type TextSelectEvent,
+} from "./composables/useSystemEvents";
 
 const { currentPet, backgroundStyle, settings, live2dTransform } =
   useSettings();
 const chat = useChat();
 const { chatHistory, addUserMessage, addPetMessage, addOtherPetMessage } =
   useChatHistory();
+
+// 插件工具系统
+const {
+  externalTools,
+  init: initPluginTools,
+  toolExecutor: pluginToolExecutor,
+} = usePluginTools();
+
+// 插件系统（用于广播信息，触发钩子）
+const { triggerHookWithActions } = usePluginSystem();
+
+// 系统事件处理函数
+const handleFileOpenEvent = async (event: FileOpenEvent) => {
+  console.log("[SystemEvents] 处理文件打开事件:", event);
+
+  // 触发插件钩子，让插件处理文件打开事件（如打开 PDF 阅读器窗口）
+  try {
+    const hookResults = await triggerHookWithActions("on_file_open", {
+      path: event.path,
+      file_type: event.file_type,
+      file_name: event.file_name,
+    });
+    console.log("[SystemEvents] 插件钩子响应:", hookResults);
+  } catch (e) {
+    console.error("[SystemEvents] 触发插件钩子失败:", e);
+  }
+
+  // 生成系统提示
+  const systemPrompt = generateFileOpenPrompt(event);
+
+  // 显示气泡通知
+  showBubble(`打开了 ${event.file_name}`, null);
+  // 暂时不将系统消息添加到聊天记录
+  // addUserMessage("系统", systemPrompt);
+
+  // 如果已配置 LLM，自动发送给模型
+  if (settings.value.llmApiKey) {
+    await sendSystemMessage(systemPrompt);
+  }
+};
+
+const handleTextSelectEvent = async (event: TextSelectEvent) => {
+  console.log("[SystemEvents] 处理文本选择事件:", event);
+
+  // 生成系统提示
+  const systemPrompt = generateTextSelectPrompt(event);
+
+  // 显示气泡通知
+  const previewText =
+    event.text.length > 30 ? event.text.slice(0, 30) + "..." : event.text;
+  showBubble(`选中了「${previewText}」`, null);
+  // 暂时不将系统消息添加到聊天记录
+  // addUserMessage("系统", `选中文本: ${event.text}`);
+
+  // 如果已配置 LLM，自动发送给模型
+  if (settings.value.llmApiKey) {
+    await sendSystemMessage(systemPrompt);
+  }
+};
+
+// 插件发送消息给桌宠事件数据（通用接口）
+interface PluginSendToPetEvent {
+  message: string;
+  bubble?: string;
+  source: string;
+}
+
+// 插件事件监听器清理函数
+let unlistenPluginSendToPet: UnlistenFn | null = null;
+
+// 处理插件发送的消息（通用处理函数）
+const handlePluginSendToPet = async (event: PluginSendToPetEvent) => {
+  console.log("[PluginEvent] 收到插件消息:", event);
+
+  // 显示气泡通知（如果有）
+  if (event.bubble) {
+    showBubble(event.bubble, null);
+  }
+
+  // 添加到聊天记录
+  addUserMessage(
+    "系统",
+    `[${event.source}] ${event.bubble || event.message.slice(0, 50)}`
+  );
+
+  // 如果已配置 LLM，发送给模型
+  if (settings.value.llmApiKey && event.message) {
+    await sendSystemMessage(event.message);
+  }
+};
+
+// 系统事件监听
+const { init: initSystemEvents, cleanup: cleanupSystemEvents } =
+  useSystemEvents({
+    onFileOpen: handleFileOpenEvent,
+    onTextSelect: handleTextSelectEvent,
+  });
 
 const live2dRef = ref<InstanceType<typeof Live2DCanvas> | null>(null);
 
@@ -81,7 +188,8 @@ const startMousePositionCheck = () => {
       if (!bounds) {
         return;
       }
-      console.log("Cursor position:", cursor, "Model bounds:", bounds);
+      // Todo: 鼠标悬浮的大小范围调整
+      // console.log("Cursor position:", cursor, "Model bounds:", bounds);
 
       // 判断鼠标是否在 Live2D 模型区域内
       const isInLive2DArea =
@@ -188,16 +296,22 @@ const {
 });
 
 // 当前显示的气泡消息
-const currentBubble = ref<{ message: string; speaker: string | null } | null>(
-  null
-);
+const currentBubble = ref<{
+  message: string;
+  speaker: string | null;
+  isInnerMonologue?: boolean;
+} | null>(null);
 let bubbleTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // 显示气泡
-const showBubble = (message: string, speaker: string | null) => {
+const showBubble = (
+  message: string,
+  speaker: string | null,
+  isInnerMonologue = false
+) => {
   if (!settings.value.showBubble) return;
 
-  currentBubble.value = { message, speaker };
+  currentBubble.value = { message, speaker, isInnerMonologue };
 
   if (bubbleTimeout) {
     clearTimeout(bubbleTimeout);
@@ -206,6 +320,32 @@ const showBubble = (message: string, speaker: string | null) => {
   bubbleTimeout = setTimeout(() => {
     currentBubble.value = null;
   }, settings.value.bubbleDuration);
+};
+
+// 显示内心独白后显示正式回复
+const showThinkingAndResponse = async (
+  thinking: string | null,
+  content: string | null,
+  speaker: string
+) => {
+  // 先显示内心独白
+  if (thinking) {
+    showBubble(thinking, speaker, true);
+    addPetMessage(speaker, `💭 ${thinking}`);
+
+    // 如果有正式回复，等待一段时间后显示
+    if (content) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, settings.value.bubbleDuration * 0.6)
+      );
+    }
+  }
+
+  // 显示正式回复
+  if (content) {
+    showBubble(content, speaker, false);
+    addPetMessage(speaker, content);
+  }
 };
 
 // 处理工具调用
@@ -278,16 +418,58 @@ const handleSend = async (message: string) => {
       handleToolCalls(response.toolCalls);
     }
 
-    // 显示回复
-    if (response.content) {
-      showBubble(response.content, currentPet.value.name);
-      addPetMessage(currentPet.value.name, response.content);
-    }
+    // 显示内心独白和回复
+    await showThinkingAndResponse(
+      response.thinking,
+      response.content,
+      currentPet.value.name
+    );
   } catch (error) {
     console.error("Chat error:", error);
     const errorMsg = "抱歉，出了点问题...";
     showBubble(errorMsg, currentPet.value.name);
     addPetMessage(currentPet.value.name, errorMsg);
+  }
+};
+
+// 发送系统消息（用于文件打开、文本选择等系统事件）
+const sendSystemMessage = async (systemPrompt: string) => {
+  if (chat.isLoading.value) return;
+
+  try {
+    // 获取当前可用的动作和表情
+    const motions = motionDetails.value.map((m) => m.name);
+    const expressions = availableExpressions.value;
+
+    // 生成工具提示
+    const toolPrompt = generateToolUsagePrompt(motions, expressions);
+    const fullPrompt = `${currentPet.value.prompt}\n\n${toolPrompt}`;
+
+    // 设置配置
+    chat.setCustomPrompt(fullPrompt);
+    chat.setAvailableActions(motions, expressions);
+    chat.setConfig({
+      provider: settings.value.llmProvider,
+      apiKey: settings.value.llmApiKey,
+      baseUrl: settings.value.llmBaseUrl,
+      model: settings.value.llmModel,
+    });
+
+    const response = await chat.sendMessage(systemPrompt);
+
+    // 处理工具调用
+    if (response.toolCalls && response.toolCalls.length > 0) {
+      handleToolCalls(response.toolCalls);
+    }
+
+    // 显示内心独白和回复
+    await showThinkingAndResponse(
+      response.thinking,
+      response.content,
+      currentPet.value.name
+    );
+  } catch (error) {
+    console.error("System message error:", error);
   }
 };
 
@@ -443,6 +625,16 @@ watch(isConnected, (connected) => {
   }
 });
 
+// 监听插件工具变化，注册到 chat 系统
+watch(
+  externalTools,
+  (tools) => {
+    console.log("[PluginTools] 注册外部工具到 chat 系统:", tools.length);
+    chat.registerExternalTools(tools);
+  },
+  { deep: true }
+);
+
 onMounted(async () => {
   isDesktop.value = isDesktopPlatform();
   console.log("TableFri Desktop started");
@@ -450,6 +642,40 @@ onMounted(async () => {
     isDesktop: isDesktop.value,
     hasTauri: "__TAURI__" in window,
   });
+
+  // 初始化插件工具系统
+  if (isDesktop.value) {
+    try {
+      // 设置外部工具执行器
+      chat.setExternalToolExecutor(pluginToolExecutor);
+      // 初始化插件工具
+      await initPluginTools();
+      console.log("[PluginTools] 插件工具系统已初始化");
+    } catch (e) {
+      console.error("[PluginTools] 初始化失败:", e);
+    }
+
+    // 初始化系统事件监听（文件打开、划词等）
+    try {
+      await initSystemEvents();
+      console.log("[SystemEvents] 系统事件监听已初始化");
+    } catch (e) {
+      console.error("[SystemEvents] 初始化失败:", e);
+    }
+
+    // 监听插件发送消息给桌宠的通用事件
+    try {
+      unlistenPluginSendToPet = await listen<PluginSendToPetEvent>(
+        "plugin-send-to-pet",
+        (event) => {
+          handlePluginSendToPet(event.payload);
+        }
+      );
+      console.log("[PluginEvent] 插件消息事件监听已初始化");
+    } catch (e) {
+      console.error("[PluginEvent] 初始化失败:", e);
+    }
+  }
 
   // 桌面端默认启用点击穿透，并启动鼠标位置检测
   if (isDesktop.value) {
@@ -465,6 +691,12 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopMousePositionCheck();
+  cleanupSystemEvents();
+  // 清理插件消息事件监听
+  if (unlistenPluginSendToPet) {
+    unlistenPluginSendToPet();
+    unlistenPluginSendToPet = null;
+  }
 });
 </script>
 
@@ -481,10 +713,7 @@ onUnmounted(() => {
     </Transition>
 
     <!-- 设置页面 -->
-    <SettingsView
-      v-if="currentView === 'settings'"
-      @back="backToHome"
-    />
+    <SettingsView v-if="currentView === 'settings'" @back="backToHome" />
 
     <!-- 主页内容 -->
     <template v-else>
@@ -736,6 +965,7 @@ onUnmounted(() => {
             :message="currentBubble?.message || ''"
             :speaker="currentBubble?.speaker"
             :is-thinking="chat.isLoading.value"
+            :is-inner-monologue="currentBubble?.isInnerMonologue"
           />
         </div>
       </Transition>

@@ -47,6 +47,14 @@ apps/desktop/dist/
 # Tauri / Rust
 apps/desktop/src-tauri/target/
 
+# Plugin build artifacts
+apps/desktop/src-tauri/plugins/**/target/
+apps/desktop/src-tauri/plugins/**/dist/
+*.dylib
+*.dll
+*.so
+apps/desktop/src-tauri/plugins/**/Cargo.lock
+
 # Live2D models (add your own models, respect copyright)
 apps/mobile/public/models/*
 !apps/mobile/public/models/.gitkeep
