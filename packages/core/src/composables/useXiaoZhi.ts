@@ -1,5 +1,11 @@
 import { ref, shallowRef, computed } from 'vue'
-import { OpusDecoder } from 'opus-decoder'
+import {
+  XiaoZhiOpusDecoder,
+  XiaoZhiOpusEncoder,
+  createXiaoZhiDecoder,
+  createXiaoZhiEncoder,
+  XIAOZHI_AUDIO_CONFIG,
+} from '../utils/opusCodec'
 
 // ============ 类型定义 ============
 
@@ -118,7 +124,10 @@ export function useXiaoZhi(config?: Partial<XiaoZhiConfig>) {
   let audioContext: AudioContext | null = null
   const audioQueue: ArrayBuffer[] = []
   let isPlayingAudio = false
-  let opusDecoder: InstanceType<typeof OpusDecoder> | null = null
+  let opusDecoder: XiaoZhiOpusDecoder | null = null
+
+  // Opus 编码器相关
+  let opusEncoder: XiaoZhiOpusEncoder | null = null
 
   // MCP 工具列表
   const mcpTools = ref<MCPTool[]>([])
@@ -167,17 +176,24 @@ export function useXiaoZhi(config?: Partial<XiaoZhiConfig>) {
   /**
    * 初始化 Opus 解码器
    */
-  const initOpusDecoder = async (): Promise<InstanceType<typeof OpusDecoder>> => {
+  const initOpusDecoder = async (): Promise<XiaoZhiOpusDecoder> => {
     if (!opusDecoder) {
-      const decoder = new OpusDecoder({
-        channels: 1,
-        sampleRate: 16000, // XiaoZhi 通常使用 16000Hz
-      })
-      await decoder.ready
-      opusDecoder = decoder
-      console.log('[XiaoZhi] Opus 解码器已初始化')
+      opusDecoder = createXiaoZhiDecoder()
+      await opusDecoder.init()
+      console.log('[XiaoZhi] Opus 解码器已初始化 (16kHz, 单声道)')
     }
     return opusDecoder
+  }
+
+  /**
+   * 初始化 Opus 编码器
+   * 注意：只创建实例，实际初始化在 startRecording 时进行
+   */
+  const initOpusEncoder = async (): Promise<XiaoZhiOpusEncoder> => {
+    if (!opusEncoder) {
+      opusEncoder = createXiaoZhiEncoder()
+    }
+    return opusEncoder
   }
 
   /**
@@ -240,13 +256,13 @@ export function useXiaoZhi(config?: Partial<XiaoZhiConfig>) {
     try {
       // 首先尝试作为 Opus 解码
       const decoder = await initOpusDecoder()
-      const { channelData, sampleRate } = await decoder.decodeFrame(uint8Array)
+      const decodedData = await decoder.decode(uint8Array)
 
-      if (channelData && channelData[0] && channelData[0].length > 0) {
-        console.log('[XiaoZhi] Opus 解码成功, 采样数:', channelData[0].length)
+      if (decodedData && decodedData.length > 0) {
+        console.log('[XiaoZhi] Opus 解码成功, 采样数:', decodedData.length)
 
-        const audioBuffer = ctx.createBuffer(1, channelData[0].length, sampleRate)
-        audioBuffer.getChannelData(0).set(channelData[0])
+        const audioBuffer = ctx.createBuffer(1, decodedData.length, XIAOZHI_AUDIO_CONFIG.sampleRate)
+        audioBuffer.getChannelData(0).set(decodedData)
 
         const source = ctx.createBufferSource()
         source.buffer = audioBuffer
@@ -339,8 +355,12 @@ export function useXiaoZhi(config?: Partial<XiaoZhiConfig>) {
       audioContext = null
     }
     if (opusDecoder) {
-      await opusDecoder.free()
+      await opusDecoder.destroy()
       opusDecoder = null
+    }
+    if (opusEncoder) {
+      opusEncoder.destroy()
+      opusEncoder = null
     }
   }
 
@@ -349,15 +369,12 @@ export function useXiaoZhi(config?: Partial<XiaoZhiConfig>) {
   // 录音状态
   const isRecording = ref(false)
   let audioStream: MediaStream | null = null
-  let recordingAudioContext: AudioContext | null = null
-  let recordingProcessor: ScriptProcessorNode | null = null
 
   /**
-   * 开始录音并发送到服务器
+   * 开始录音并发送到服务器（使用 opus-recorder 进行 Opus 编码）
    */
   const startRecording = async (): Promise<boolean> => {
     if (isRecording.value) {
-      console.warn('[XiaoZhi] 已经在录音中')
       return false
     }
 
@@ -367,15 +384,18 @@ export function useXiaoZhi(config?: Partial<XiaoZhiConfig>) {
     }
 
     try {
-      // 获取麦克风权限
-      audioStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          sampleRate: 16000,
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
+      // 初始化编码器
+      const encoder = await initOpusEncoder()
+
+      // 设置编码数据回调 - 发送原始 Opus 帧到服务器
+      encoder.onEncoded((opusFrame) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(opusFrame.buffer)
+        }
       })
+
+      // 初始化编码器（会请求麦克风权限）
+      await encoder.init()
 
       // 发送开始监听消息
       sendJSON({
@@ -384,38 +404,13 @@ export function useXiaoZhi(config?: Partial<XiaoZhiConfig>) {
         state: 'start',
       })
 
-      // 创建音频上下文
-      recordingAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
-        sampleRate: 16000,
-      })
-
-      const source = recordingAudioContext.createMediaStreamSource(audioStream)
-
-      // 使用 ScriptProcessorNode 获取原始 PCM 数据
-      // 注意：ScriptProcessorNode 已废弃，但 AudioWorklet 在某些环境支持不好
-      recordingProcessor = recordingAudioContext.createScriptProcessor(4096, 1, 1)
-
-      recordingProcessor.onaudioprocess = (e) => {
-        if (!isRecording.value || !ws || ws.readyState !== WebSocket.OPEN) return
-
-        const inputData = e.inputBuffer.getChannelData(0)
-
-        // 将 Float32 转换为 Int16 PCM
-        const pcmData = new Int16Array(inputData.length)
-        for (let i = 0; i < inputData.length; i++) {
-          const s = Math.max(-1, Math.min(1, inputData[i]))
-          pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7fff
-        }
-
-        // 发送二进制音频数据
-        ws.send(pcmData.buffer)
+      // 开始录音
+      const started = await encoder.start()
+      if (!started) {
+        throw new Error('编码器启动失败')
       }
 
-      source.connect(recordingProcessor)
-      recordingProcessor.connect(recordingAudioContext.destination)
-
       isRecording.value = true
-      console.log('[XiaoZhi] 开始录音')
       return true
     } catch (e) {
       console.error('[XiaoZhi] 录音启动失败:', e)
@@ -428,14 +423,8 @@ export function useXiaoZhi(config?: Partial<XiaoZhiConfig>) {
    * 停止录音
    */
   const stopRecording = () => {
-    if (recordingProcessor) {
-      recordingProcessor.disconnect()
-      recordingProcessor = null
-    }
-
-    if (recordingAudioContext) {
-      recordingAudioContext.close()
-      recordingAudioContext = null
+    if (opusEncoder) {
+      opusEncoder.stop()
     }
 
     if (audioStream) {
@@ -453,7 +442,6 @@ export function useXiaoZhi(config?: Partial<XiaoZhiConfig>) {
     }
 
     isRecording.value = false
-    console.log('[XiaoZhi] 停止录音')
   }
 
   /**

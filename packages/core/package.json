@@ -21,6 +21,7 @@
   "dependencies": {
     "@desktopfriends/shared": "workspace:*",
     "opus-decoder": "^0.7.11",
+    "opus-recorder": "^8.0.5",
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {

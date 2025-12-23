@@ -12,6 +12,15 @@ export { useServerDiscovery } from './composables/useServerDiscovery'
 export { useWebSocket } from './composables/useWebSocket'
 export { useXiaoZhi } from './composables/useXiaoZhi'
 
+// Opus 编解码工具导出
+export {
+  XiaoZhiOpusDecoder,
+  XiaoZhiOpusEncoder,
+  createXiaoZhiDecoder,
+  createXiaoZhiEncoder,
+  XIAOZHI_AUDIO_CONFIG,
+} from './utils/opusCodec'
+
 // 类型导出
 export type { ChatMessage } from './types'
 export type { Live2DTransform } from './composables/useSettings'
