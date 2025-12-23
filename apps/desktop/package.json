@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
+    "tauri:dev-no-hidden": "VITE_NO_HIDDEN=true tauri dev",
+    "tauri:dev-reset": "VITE_RESET_DATA=true tauri dev",
     "tauri:build": "tauri build"
   },
   "dependencies": {

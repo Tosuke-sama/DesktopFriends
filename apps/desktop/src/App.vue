@@ -29,12 +29,23 @@ import {
   type FileOpenEvent,
   type TextSelectEvent,
 } from "./composables/useSystemEvents";
+import { DEV_ENV } from "./main";
 
-const { currentPet, backgroundStyle, settings, live2dTransform } =
-  useSettings();
+const {
+  currentPet,
+  backgroundStyle,
+  settings,
+  live2dTransform,
+  resetSettings,
+} = useSettings();
 const chat = useChat();
 const { chatHistory, addUserMessage, addPetMessage, addOtherPetMessage } =
   useChatHistory();
+
+console.log("DEV_ENV", DEV_ENV);
+if (DEV_ENV.IS_RESET_DATA) {
+  resetSettings();
+}
 
 // 插件工具系统
 const {
@@ -192,11 +203,11 @@ const startMousePositionCheck = () => {
       // console.log("Cursor position:", cursor, "Model bounds:", bounds);
 
       // 判断鼠标是否在 Live2D 模型区域内
-      const isInLive2DArea =
-        cursor.x >= bounds.left &&
-        cursor.x <= bounds.right &&
-        cursor.y >= bounds.top &&
-        cursor.y <= bounds.bottom;
+      const isInLive2DArea = true;
+      // cursor.x >= bounds.left &&
+      // cursor.x <= bounds.right &&image.png
+      // cursor.y >= bounds.top &&
+      // cursor.y <= bounds.bottom;
 
       // 只有进入模型区域时才激活 UI，不会因为离开模型而关闭
       if (isInLive2DArea && !isHoveringLive2D.value) {
@@ -251,11 +262,13 @@ const toggleLocked = async () => {
 };
 
 // 是否显示悬停 UI
-const showHoverUI = computed(() => isHoveringLive2D.value || isLocked.value);
+const showHoverUI = computed(
+  () => DEV_ENV.IS_NO_HIDDEN || isHoveringLive2D.value || isLocked.value
+);
 
 // 面板显示状态
 const showTestPanel = ref(false);
-const showAdjustPanel = ref(false);
+const showAdjustPanel = ref(DEV_ENV.IS_NO_HIDDEN || false);
 const showPetsPanel = ref(false);
 
 // 获取模型可用的动作和表情
@@ -704,16 +717,21 @@ onUnmounted(() => {
   <div class="app-container" :style="backgroundStyle">
     <!-- 桌面端窗口控制 -->
     <Transition name="fade">
-      <WindowControls
-        v-if="isDesktop && currentView !== 'settings'"
-        v-show="showHoverUI"
-        :is-locked="isLocked"
-        @toggle-lock="toggleLocked"
-      />
+      <WindowControls :is-locked="isLocked" @toggle-lock="toggleLocked" />
     </Transition>
 
     <!-- 设置页面 -->
-    <SettingsView v-if="currentView === 'settings'" @back="backToHome" />
+    <SettingsView
+      v-if="
+        // !DEV_ENV.IS_NO_HIDDEN ||
+        currentView === 'settings'
+      "
+      @back="backToHome"
+    />
+
+    <!-- MacOS 上有点击穿透的迷之bug，导致无法点击设置，这里自动滚开启 -->
+    <!-- <SettingsView v-if="DEV_ENV.IS_NO_HIDDEN" @back="backToHome" /> -->
+    <!-- <SettingsView v-if="DEV_ENV.IS_NO_HIDDEN" @back="backToHome" /> -->
 
     <!-- 主页内容 -->
     <template v-else>
