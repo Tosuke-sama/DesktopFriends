@@ -3,6 +3,8 @@ members = [
     ".",
     "plugins/tablefri-plugin-api",
     "plugins/examples/pdf-reader",
+    "plugins/macos-agent-plugin",
+    "plugins/test-a",
 ]
 resolver = "2"
 
@@ -19,7 +21,16 @@ edition = "2021"
 tauri-build = { version = "1.5", features = [] }
 
 [dependencies]
-tauri = { version = "1.6", features = [ "global-shortcut-all", "clipboard-all", "macos-private-api", "window-all", "shell-open", "dialog-all", "path-all", "fs-all"] }
+tauri = { version = "1.6", features = [
+    "global-shortcut-all",
+    "clipboard-all",
+    "macos-private-api",
+    "window-all",
+    "shell-open",
+    "dialog-all",
+    "path-all",
+    "fs-all",
+] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 libloading = "0.8"

@@ -11,7 +11,9 @@
     "tauri:dev": "tauri dev",
     "tauri:dev-no-hidden": "VITE_NO_HIDDEN=true tauri dev",
     "tauri:dev-reset": "VITE_RESET_DATA=true tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "plugin:new": "node scripts/create-new-plugin/index.mjs",
+    "plugin:new-independent": "node scripts/create-new-plugin/index.mjs --independent"
   },
   "dependencies": {
     "@desktopfriends/core": "workspace:*",

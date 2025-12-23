@@ -1,0 +1,24 @@
+#!/bin/bash
+set -e
+
+# 构建
+cargo build --release
+
+# 确定库名
+case "$(uname -s)" in
+    Darwin*)  LIB_NAME="libmy_plugin.dylib" ;;
+    Linux*)   LIB_NAME="libmy_plugin.so" ;;
+    *)        LIB_NAME="my_plugin.dll" ;;
+esac
+
+# 创建分发目录
+mkdir -p dist/my-plugin/ui
+cp "target/release/$LIB_NAME" dist/my-plugin/
+cp manifest.json dist/my-plugin/
+cp -r ui/* dist/my-plugin/ui/
+
+# 打包
+cd dist
+zip -r my-plugin.zip my-plugin
+
+echo "插件包: dist/my-plugin.zip"
