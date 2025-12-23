@@ -157,6 +157,9 @@ importers:
       opus-decoder:
         specifier: ^0.7.11
         version: 0.7.11
+      opus-recorder:
+        specifier: ^8.0.5
+        version: 8.0.5
       socket.io-client:
         specifier: ^4.8.1
         version: 4.8.1
@@ -2325,6 +2328,9 @@ packages:
 
   opus-decoder@0.7.11:
     resolution: {integrity: sha512-+e+Jz3vGQLxRTBHs8YJQPRPc1Tr+/aC6coV/DlZylriA29BdHQAYXhvNRKtjftof17OFng0+P4wsFIqQu3a48A==}
+
+  opus-recorder@8.0.5:
+    resolution: {integrity: sha512-tBRXc9Btds7i3bVfA7d5rekAlyOcfsivt5vSIXHxRV1Oa+s6iXFW8omZ0Lm3ABWotVcEyKt96iIIUcgbV07YOw==}
 
   p-limit@2.3.0:
     resolution: {integrity: sha512-//88mFWSJx8lxCzwdAABTJL2MyWB12+eIY7MDL2SqLmAkeKU9qxRvWuSyTjm3FUmpBEMuFfckAIqEaVGUDxb6w==}
@@ -5004,6 +5010,8 @@ snapshots:
   opus-decoder@0.7.11:
     dependencies:
       '@wasm-audio-decoders/common': 9.0.7
+
+  opus-recorder@8.0.5: {}
 
   p-limit@2.3.0:
     dependencies:

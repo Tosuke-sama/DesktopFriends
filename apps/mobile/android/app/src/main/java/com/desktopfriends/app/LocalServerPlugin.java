@@ -1,4 +1,4 @@
-package com.tablefri.app;
+package com.desktopfriends.app;
 
 import android.content.Context;
 import android.net.wifi.WifiManager;
