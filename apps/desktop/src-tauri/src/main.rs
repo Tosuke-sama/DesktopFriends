@@ -98,117 +98,7 @@ fn get_clipboard_text() -> Result<String, String> {
     clipboard.get_text().map_err(|e| e.to_string())
 }
 
-/// 打开插件窗口
-///
-/// 参数:
-/// - plugin_id: 插件 ID
-/// - window_name: 窗口名称（对应 manifest 中的 ui.windows 配置）
-/// - title: 窗口标题
-/// - data: 传递给窗口的初始数据
-#[tauri::command]
-pub async fn open_plugin_window(
-    app: tauri::AppHandle,
-    plugin_id: String,
-    window_name: String,
-    title: Option<String>,
-    data: Option<serde_json::Value>,
-) -> Result<String, String> {
-    use std::sync::Mutex;
-
-    // 获取插件管理器
-    let manager_state = app.state::<Mutex<PluginManager>>();
-    let manager = manager_state.lock().map_err(|e| format!("锁定插件管理器失败: {}", e))?;
-
-    // 获取窗口配置
-    let (plugin_dir, window_config) = manager
-        .get_plugin_window_config(&plugin_id, &window_name)
-        .map_err(|e| e.to_string())?;
-
-    // 获取 HTML 路径
-    let html_path = window_config.get("path")
-        .and_then(|p| p.as_str())
-        .ok_or_else(|| "窗口配置缺少 path 字段".to_string())?;
-
-    // 构建完整的 HTML 文件路径
-    let full_html_path = plugin_dir.join(html_path);
-    if !full_html_path.exists() {
-        return Err(format!("窗口 HTML 文件不存在: {:?}", full_html_path));
-    }
-
-    // 获取窗口尺寸配置
-    let width = window_config.get("width")
-        .and_then(|w| w.as_f64())
-        .unwrap_or(900.0);
-    let height = window_config.get("height")
-        .and_then(|h| h.as_f64())
-        .unwrap_or(700.0);
-
-    // 获取默认窗口标题
-    let default_title = window_config.get("title")
-        .and_then(|t| t.as_str())
-        .unwrap_or("插件窗口")
-        .to_string();
-
-    drop(manager); // 释放锁
-
-    // 生成唯一的窗口标签
-    let window_label = format!("plugin-{}-{}-{}", plugin_id, window_name,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0));
-
-    // 窗口标题
-    let window_title = title.unwrap_or(default_title);
-
-    // 使用自定义 plugin:// 协议加载插件的 HTML
-    // 路径格式: plugin://localhost/{plugin_id}/{html_path}?path={encoded_pdf_path}
-    let mut plugin_url = format!("plugin://localhost/{}/{}", plugin_id, html_path);
-
-    // 如果 data 中包含 path，将其作为 URL 参数传递
-    if let Some(ref init_data) = data {
-        if let Some(path) = init_data.get("path").and_then(|p| p.as_str()) {
-            let encoded_path = urlencoding::encode(path);
-            plugin_url = format!("{}?path={}", plugin_url, encoded_path);
-        }
-    }
-
-    println!("[PluginWindow] 创建窗口: {} -> {}", window_label, plugin_url);
-
-    // 创建窗口
-    let _window = tauri::WindowBuilder::new(
-        &app,
-        &window_label,
-        tauri::WindowUrl::External(plugin_url.parse().map_err(|e| format!("无效的 URL: {}", e))?)
-    )
-    .title(window_title)
-    .inner_size(width, height)
-    .min_inner_size(400.0, 300.0)
-    .resizable(true)
-    .center()
-    .build()
-    .map_err(|e| format!("创建窗口失败: {}", e))?;
-
-    // 同时也尝试发送初始数据给窗口（作为后备）
-    if let Some(init_data) = data {
-        let app_clone = app.clone();
-        let window_label_clone = window_label.clone();
-        tauri::async_runtime::spawn(async move {
-            // 等待窗口加载
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-            // 发送初始化数据
-            if let Err(e) = app_clone.emit_to(&window_label_clone, "plugin-window-init", init_data) {
-                eprintln!("[PluginWindow] 发送初始化数据失败: {}", e);
-            } else {
-                println!("[PluginWindow] 已发送初始化数据到窗口: {}", window_label_clone);
-            }
-        });
-    }
-
-    println!("[PluginWindow] 已创建插件窗口: {} ({})", window_label, plugin_id);
-    Ok(window_label)
-}
+// open_plugin_window 已移至 plugins::commands 模块
 
 /// 处理文件打开（供外部调用或内部触发）
 fn emit_file_open_event(app_handle: &tauri::AppHandle, file_path: &str) {
@@ -256,14 +146,23 @@ fn emit_text_select_event(app_handle: &tauri::AppHandle, text: &str, source: &st
 }
 
 /// 处理插件发送消息给桌宠事件（通用接口）
-fn emit_plugin_send_to_pet_event(app_handle: &tauri::AppHandle, message: &str, bubble: Option<&str>, source: &str) {
+fn emit_plugin_send_to_pet_event(
+    app_handle: &tauri::AppHandle,
+    message: &str,
+    bubble: Option<&str>,
+    source: &str,
+) {
     let event = PluginSendToPetEvent {
         message: message.to_string(),
         bubble: bubble.map(|s| s.to_string()),
         source: source.to_string(),
     };
 
-    println!("[PluginSendToPet] 插件消息事件: {} 字符, 来源: {}", message.len(), source);
+    println!(
+        "[PluginSendToPet] 插件消息事件: {} 字符, 来源: {}",
+        message.len(),
+        source
+    );
 
     // 发送事件到前端
     if let Err(e) = app_handle.emit_all("plugin-send-to-pet", event) {
@@ -288,19 +187,17 @@ fn register_global_shortcuts(app_handle: tauri::AppHandle) {
 
         // 获取剪贴板内容
         match arboard::Clipboard::new() {
-            Ok(mut clipboard) => {
-                match clipboard.get_text() {
-                    Ok(text) if !text.is_empty() => {
-                        emit_text_select_event(&app_handle_clone, &text, "clipboard");
-                    }
-                    Ok(_) => {
-                        println!("[Shortcut] 剪贴板为空");
-                    }
-                    Err(e) => {
-                        eprintln!("[Shortcut] 读取剪贴板失败: {}", e);
-                    }
+            Ok(mut clipboard) => match clipboard.get_text() {
+                Ok(text) if !text.is_empty() => {
+                    emit_text_select_event(&app_handle_clone, &text, "clipboard");
                 }
-            }
+                Ok(_) => {
+                    println!("[Shortcut] 剪贴板为空");
+                }
+                Err(e) => {
+                    eprintln!("[Shortcut] 读取剪贴板失败: {}", e);
+                }
+            },
             Err(e) => {
                 eprintln!("[Shortcut] 创建剪贴板实例失败: {}", e);
             }
@@ -316,8 +213,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_cursor_position,
             get_clipboard_text,
-            open_plugin_window,
             // 插件系统命令
+            plugins::open_plugin_window,
             plugins::plugin_install,
             plugins::plugin_uninstall,
             plugins::plugin_enable,
@@ -350,7 +247,11 @@ fn main() {
             // 构建完整文件路径
             let file_path = plugins_dir.join(path);
 
-            println!("[PluginProtocol] 请求文件: {} -> {:?}", path, file_path);
+            println!(
+                "[PluginProtocol] 请求文件: {} (exists: {})",
+                path,
+                file_path.exists()
+            );
 
             if file_path.exists() {
                 match std::fs::read(&file_path) {
@@ -400,9 +301,13 @@ fn main() {
                 .map(|s| s.into_owned())
                 .unwrap_or(encoded_path);
 
-            println!("[LocalFileProtocol] 请求文件: {}", path);
-
             let file_path = std::path::Path::new(&path);
+
+            println!(
+                "[LocalFileProtocol] 请求: {} (exists: {})",
+                path,
+                file_path.exists()
+            );
 
             if file_path.exists() {
                 match std::fs::read(file_path) {
@@ -458,7 +363,10 @@ fn main() {
                     let mut iter = pair.splitn(2, '=');
                     let key = iter.next()?;
                     let value = iter.next().unwrap_or("");
-                    Some((key.to_string(), urlencoding::decode(value).unwrap_or_default().into_owned()))
+                    Some((
+                        key.to_string(),
+                        urlencoding::decode(value).unwrap_or_default().into_owned(),
+                    ))
                 })
                 .collect();
 
@@ -467,7 +375,10 @@ fn main() {
                 "send-to-pet" => {
                     let message = params.get("message").cloned().unwrap_or_default();
                     let bubble = params.get("bubble").cloned();
-                    let source = params.get("source").cloned().unwrap_or_else(|| "plugin".to_string());
+                    let source = params
+                        .get("source")
+                        .cloned()
+                        .unwrap_or_else(|| "plugin".to_string());
 
                     if !message.is_empty() {
                         emit_plugin_send_to_pet_event(&app, &message, bubble.as_deref(), &source);
@@ -483,7 +394,10 @@ fn main() {
                 // 文本选择事件（保留向后兼容）
                 "text-select" => {
                     let text = params.get("text").cloned().unwrap_or_default();
-                    let source = params.get("source").cloned().unwrap_or_else(|| "plugin".to_string());
+                    let source = params
+                        .get("source")
+                        .cloned()
+                        .unwrap_or_else(|| "plugin".to_string());
 
                     if !text.is_empty() {
                         emit_text_select_event(&app, &text, &source);
@@ -517,13 +431,19 @@ fn main() {
                         }
                     };
 
-                    let args_raw = params.get("args").cloned().unwrap_or_else(|| "{}".to_string());
-                    let decoded = urlencoding::decode(&args_raw).unwrap_or_else(|_| args_raw.into());
+                    let args_raw = params
+                        .get("args")
+                        .cloned()
+                        .unwrap_or_else(|| "{}".to_string());
+                    let decoded = urlencoding::decode(&args_raw)
+                        .map(|s| s.into_owned())
+                        .unwrap_or_else(|_| args_raw.clone());
                     let arguments: serde_json::Value = serde_json::from_str(&decoded)
                         .unwrap_or(serde_json::Value::Object(Default::default()));
 
-                    let manager_state = match app.state::<Mutex<PluginManager>>().lock() {
-                        Ok(state) => state,
+                    let manager_state = app.state::<Mutex<PluginManager>>();
+                    let manager_guard = match manager_state.lock() {
+                        Ok(guard) => guard,
                         Err(e) => {
                             eprintln!("[PluginEvent] 获取插件管理器失败: {}", e);
                             return tauri::http::ResponseBuilder::new()
@@ -538,9 +458,10 @@ fn main() {
                         arguments,
                     };
 
-                    match manager_state.execute_tool(&plugin_id, &call) {
+                    match manager_guard.execute_tool(&plugin_id, &call) {
                         Ok(result) => {
-                            let payload = serde_json::to_vec(&result).unwrap_or_else(|_| b"{}".to_vec());
+                            let payload =
+                                serde_json::to_vec(&result).unwrap_or_else(|_| b"{}".to_vec());
                             tauri::http::ResponseBuilder::new()
                                 .status(200)
                                 .header("Content-Type", "application/json")
@@ -557,12 +478,10 @@ fn main() {
                     }
                 }
 
-                _ => {
-                    tauri::http::ResponseBuilder::new()
-                        .status(400)
-                        .header("Access-Control-Allow-Origin", "*")
-                        .body(r#"{"error":"unknown event type"}"#.as_bytes().to_vec())
-                }
+                _ => tauri::http::ResponseBuilder::new()
+                    .status(400)
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(r#"{"error":"unknown event type"}"#.as_bytes().to_vec()),
             }
         })
         .setup(|app| {
@@ -610,21 +529,26 @@ fn main() {
                 unsafe {
                     // 设置窗口背景透明
                     ns_window.setOpaque_(cocoa::base::NO);
-                    ns_window.setBackgroundColor_(cocoa::appkit::NSColor::clearColor(cocoa::base::nil));
+                    ns_window
+                        .setBackgroundColor_(cocoa::appkit::NSColor::clearColor(cocoa::base::nil));
 
                     // 移除标题栏但保留窗口控制
                     let mut style_mask = ns_window.styleMask();
                     style_mask |= NSWindowStyleMask::NSFullSizeContentViewWindowMask;
                     ns_window.setStyleMask_(style_mask);
                     ns_window.setTitlebarAppearsTransparent_(cocoa::base::YES);
-                    ns_window.setTitleVisibility_(cocoa::appkit::NSWindowTitleVisibility::NSWindowTitleHidden);
+                    ns_window.setTitleVisibility_(
+                        cocoa::appkit::NSWindowTitleVisibility::NSWindowTitleHidden,
+                    );
                 }
             }
             Ok(())
         })
         // 处理文件拖拽到应用图标打开
         .on_window_event(|event| {
-            if let tauri::WindowEvent::FileDrop(tauri::FileDropEvent::Dropped(paths)) = event.event() {
+            if let tauri::WindowEvent::FileDrop(tauri::FileDropEvent::Dropped(paths)) =
+                event.event()
+            {
                 let app_handle = event.window().app_handle();
                 for path in paths {
                     if let Some(path_str) = path.to_str() {

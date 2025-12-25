@@ -125,14 +125,12 @@ impl PluginRegistry {
                             let lib_path = path.join(&manifest.main);
 
                             // 获取保存的状态或使用默认值
-                            let state = registry_data
-                                .plugins
-                                .get(&plugin_id)
-                                .cloned()
-                                .unwrap_or(PluginState {
+                            let state = registry_data.plugins.get(&plugin_id).cloned().unwrap_or(
+                                PluginState {
                                     enabled: false,
                                     config: serde_json::Value::Object(Default::default()),
-                                });
+                                },
+                            );
 
                             self.entries.insert(
                                 plugin_id,
@@ -156,8 +154,8 @@ impl PluginRegistry {
     /// 读取 manifest 文件
     fn read_manifest(&self, path: &Path) -> Result<PluginManifest, RegistryError> {
         let content = fs::read_to_string(path)?;
-        let manifest: PluginManifest =
-            serde_json::from_str(&content).map_err(|e| RegistryError::InvalidManifest(e.to_string()))?;
+        let manifest: PluginManifest = serde_json::from_str(&content)
+            .map_err(|e| RegistryError::InvalidManifest(e.to_string()))?;
         Ok(manifest)
     }
 
@@ -199,7 +197,11 @@ impl PluginRegistry {
     /// # Arguments
     /// * `manifest` - 插件清单
     /// * `plugin_dir` - 插件目录
-    pub fn register(&mut self, manifest: PluginManifest, plugin_dir: PathBuf) -> Result<PluginInfo, RegistryError> {
+    pub fn register(
+        &mut self,
+        manifest: PluginManifest,
+        plugin_dir: PathBuf,
+    ) -> Result<PluginInfo, RegistryError> {
         let plugin_id = manifest.id.clone();
 
         if self.entries.contains_key(&plugin_id) {
@@ -255,7 +257,11 @@ impl PluginRegistry {
     }
 
     /// 更新插件配置
-    pub fn set_config(&mut self, plugin_id: &str, config: serde_json::Value) -> Result<(), RegistryError> {
+    pub fn set_config(
+        &mut self,
+        plugin_id: &str,
+        config: serde_json::Value,
+    ) -> Result<(), RegistryError> {
         let entry = self.get_mut(plugin_id)?;
         entry.config = config;
         self.save_state()?;

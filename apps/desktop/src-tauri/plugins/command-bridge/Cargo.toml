@@ -2,7 +2,7 @@
 name = "command_bridge_plugin"
 version = "0.1.0"
 edition = "2021"
-description = "Controlled shell command runner"
+description = "Controlled shell command runner - Execute system commands with user approval"
 authors = ["TableFri"]
 license = "MIT"
 

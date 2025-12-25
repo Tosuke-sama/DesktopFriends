@@ -3345,6 +3345,7 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "async-trait",
+ "base64 0.21.7",
  "cocoa 0.25.0",
  "libloading",
  "objc",

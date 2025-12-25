@@ -120,20 +120,51 @@ let unlistenPluginSendToPet: UnlistenFn | null = null;
 const handlePluginSendToPet = async (event: PluginSendToPetEvent) => {
   console.log("[PluginEvent] 收到插件消息:", event);
 
-  // 显示气泡通知（如果有）
-  if (event.bubble) {
-    showBubble(event.bubble, null);
+  // 检查是否是工具执行结果（以"工具"开头，包含"执行成功"或"执行失败"）
+  const isToolResult =
+    event.message.startsWith("工具 ") &&
+    (event.message.includes("执行成功") || event.message.includes("执行失败"));
+
+  // 工具执行结果不显示在 UI 中，让交互更自然
+  if (!isToolResult) {
+    // 只有非工具执行结果才显示气泡和聊天记录
+    if (event.bubble) {
+      showBubble(event.bubble, null);
+    } else {
+      const shortMessage = event.message.split("\n")[0].slice(0, 50);
+      if (shortMessage) {
+        showBubble(shortMessage, null);
+      }
+    }
+
+    // 添加到聊天记录（只显示简短摘要）
+    const displayMessage =
+      event.bubble ||
+      (event.message.includes("【系统提示】")
+        ? event.message.split("\n").slice(0, 2).join(" ").slice(0, 100) + "..."
+        : event.message.slice(0, 100));
+
+    addUserMessage("系统", `[${event.source}] ${displayMessage}`);
   }
 
-  // 添加到聊天记录
-  addUserMessage(
-    "系统",
-    `[${event.source}] ${event.bubble || event.message.slice(0, 50)}`
-  );
-
-  // 如果已配置 LLM，发送给模型
+  // 如果已配置 LLM，发送完整的消息给模型
   if (settings.value.llmApiKey && event.message) {
-    await sendSystemMessage(event.message);
+    if (isToolResult) {
+      // 工具执行结果：明确告诉 AI 这是已经执行完成的结果，需要基于结果回复
+      // 移除"请用自然、友好的方式告诉主人..."这种提示，让 AI 自己决定如何回复
+      const toolResultMessage = event.message
+        .replace(/请用自然[^。]*。\s*/g, "") // 移除提示语
+        .replace(
+          /工具 list_directory 执行成功。\n\n/,
+          "【工具执行结果】list_directory 已完成。\n\n"
+        );
+
+      const toolResultPrompt = `${toolResultMessage}\n\n这是你刚才调用的工具的执行结果。请基于这个结果，用自然、友好的方式告诉主人你看到了什么。`;
+      await sendSystemMessage(toolResultPrompt);
+    } else {
+      // 普通系统消息
+      await sendSystemMessage(event.message);
+    }
   }
 };
 

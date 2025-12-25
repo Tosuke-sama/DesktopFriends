@@ -86,14 +86,18 @@ pub async fn plugin_execute_tool(
     tool_name: String,
     arguments: Value,
 ) -> Result<ToolResult, String> {
-    let manager = manager.lock().map_err(|e| e.to_string())?;
     let call = ToolCall {
         name: tool_name,
         arguments,
     };
-    let result = manager
-        .execute_tool(&plugin_id, &call)
-        .map_err(|e| e.to_string())?;
+
+    // 在 await 之前释放锁
+    let result = {
+        let manager = manager.lock().map_err(|e| e.to_string())?;
+        manager
+            .execute_tool(&plugin_id, &call)
+            .map_err(|e| e.to_string())?
+    };
 
     if let Err(e) = handle_tool_side_effects(&app, &plugin_id, &result).await {
         eprintln!(
@@ -115,10 +119,7 @@ async fn handle_tool_side_effects(
         _ => return Ok(()),
     };
 
-    let action = data
-        .get("action")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let action = data.get("action").and_then(|v| v.as_str()).unwrap_or("");
 
     match action {
         "open_window" => {
@@ -132,7 +133,7 @@ async fn handle_tool_side_effects(
                 .map(|s| s.to_string());
             let window_data = data.get("windowData").cloned();
 
-            crate::open_plugin_window(
+            super::window::open_plugin_window_internal(
                 app.clone(),
                 plugin_id.to_string(),
                 window_name.to_string(),
@@ -188,4 +189,22 @@ pub fn plugin_set_config(
 pub fn plugin_refresh(manager: State<'_, Mutex<PluginManager>>) -> Result<(), String> {
     let mut manager = manager.lock().map_err(|e| e.to_string())?;
     manager.refresh().map_err(|e| e.to_string())
+}
+
+/// 打开插件窗口
+///
+/// 参数:
+/// - plugin_id: 插件 ID
+/// - window_name: 窗口名称（对应 manifest 中的 ui.windows 配置）
+/// - title: 窗口标题
+/// - data: 传递给窗口的初始数据
+#[tauri::command]
+pub async fn open_plugin_window(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    window_name: String,
+    title: Option<String>,
+    data: Option<serde_json::Value>,
+) -> Result<String, String> {
+    super::window::open_plugin_window_internal(app, plugin_id, window_name, title, data).await
 }

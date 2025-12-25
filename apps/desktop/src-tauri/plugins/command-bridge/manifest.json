@@ -3,7 +3,7 @@
   "name": "Command Bridge",
   "version": "0.1.0",
   "author": "TableFri",
-  "description": "Controlled shell command runner",
+  "description": "Controlled shell command runner - Execute system commands (like ls/dir) with user approval and security controls",
   "main": "libcommand_bridge_plugin.dylib",
   "ui": {
     "panel": "ui/Panel.vue",
@@ -17,9 +17,7 @@
       }
     }
   },
-  "permissions": [
-    "list_directory"
-  ],
+  "permissions": ["list_directory"],
   "tools": [
     {
       "name": "list_directory",
@@ -32,6 +30,10 @@
     {
       "name": "handle_request",
       "description": "Internal approval handler triggered by the console window"
+    },
+    {
+      "name": "poll_updates",
+      "description": "Long-poll for queue/history updates"
     }
   ],
   "hooks": []

@@ -6,6 +6,8 @@ use std::sync::Mutex;
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::REQUEST_FILE;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RequestState {
     Pending,
@@ -135,5 +137,16 @@ impl RequestStore {
             .iter()
             .find(|r| r.id == id)
             .cloned()
+    }
+
+    pub fn public_path(&self, plugin_id: &str) -> String {
+        format!("plugin://localhost/{}/data/{}", plugin_id, self.file_name())
+    }
+
+    pub fn file_name(&self) -> String {
+        self.path
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| REQUEST_FILE.to_string())
     }
 }

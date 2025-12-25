@@ -143,7 +143,11 @@ impl PluginManager {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                if outpath.extension().map(|e| e == "dylib" || e == "so").unwrap_or(false) {
+                if outpath
+                    .extension()
+                    .map(|e| e == "dylib" || e == "so")
+                    .unwrap_or(false)
+                {
                     let mut perms = fs::metadata(&outpath)?.permissions();
                     perms.set_mode(0o755);
                     fs::set_permissions(&outpath, perms)?;
@@ -204,8 +208,7 @@ impl PluginManager {
         self.loader.initialize(plugin_id, &ctx)?;
 
         // 注册钩子
-        self.hooks
-            .register_many(&entry.manifest.hooks, plugin_id);
+        self.hooks.register_many(&entry.manifest.hooks, plugin_id);
 
         // 更新注册表状态
         self.registry.set_enabled(plugin_id, true)?;
@@ -266,7 +269,11 @@ impl PluginManager {
     }
 
     /// 执行工具调用
-    pub fn execute_tool(&self, plugin_id: &str, call: &ToolCall) -> Result<ToolResult, ManagerError> {
+    pub fn execute_tool(
+        &self,
+        plugin_id: &str,
+        call: &ToolCall,
+    ) -> Result<ToolResult, ManagerError> {
         if !self.loader.is_loaded(plugin_id) {
             return Err(ManagerError::PluginNotEnabled(plugin_id.to_string()));
         }
@@ -323,18 +330,24 @@ impl PluginManager {
     ) -> Result<(PathBuf, serde_json::Value), ManagerError> {
         let entry = self.registry.get(plugin_id)?;
 
-        let ui_config = entry.manifest.ui.as_ref()
-            .ok_or_else(|| ManagerError::InvalidPackage(format!("插件 {} 没有 UI 配置", plugin_id)))?;
+        let ui_config = entry.manifest.ui.as_ref().ok_or_else(|| {
+            ManagerError::InvalidPackage(format!("插件 {} 没有 UI 配置", plugin_id))
+        })?;
 
-        let windows_value = ui_config.windows.as_ref()
-            .ok_or_else(|| ManagerError::InvalidPackage(format!("插件 {} 没有窗口配置", plugin_id)))?;
+        let windows_value = ui_config.windows.as_ref().ok_or_else(|| {
+            ManagerError::InvalidPackage(format!("插件 {} 没有窗口配置", plugin_id))
+        })?;
 
-        let windows = windows_value.as_object()
-            .ok_or_else(|| ManagerError::InvalidPackage(format!("插件 {} 的窗口配置格式无效", plugin_id)))?;
+        let windows = windows_value.as_object().ok_or_else(|| {
+            ManagerError::InvalidPackage(format!("插件 {} 的窗口配置格式无效", plugin_id))
+        })?;
 
-        let window_config = windows.get(window_name)
-            .cloned()
-            .ok_or_else(|| ManagerError::InvalidPackage(format!("插件 {} 没有名为 {} 的窗口", plugin_id, window_name)))?;
+        let window_config = windows.get(window_name).cloned().ok_or_else(|| {
+            ManagerError::InvalidPackage(format!(
+                "插件 {} 没有名为 {} 的窗口",
+                plugin_id, window_name
+            ))
+        })?;
 
         Ok((entry.dir.clone(), window_config))
     }

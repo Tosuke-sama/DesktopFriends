@@ -81,33 +81,38 @@ impl PluginLoader {
                 .map_err(|e| LoaderError::LibraryLoad(format!("{}: {}", lib_path.display(), e)))?;
 
             // 获取所有 FFI 函数
-            let initialize: Symbol<PluginInitializeFn> = lib
-                .get(b"plugin_initialize")
-                .map_err(|e| LoaderError::SymbolNotFound("plugin_initialize".to_string(), e.to_string()))?;
+            let initialize: Symbol<PluginInitializeFn> =
+                lib.get(b"plugin_initialize").map_err(|e| {
+                    LoaderError::SymbolNotFound("plugin_initialize".to_string(), e.to_string())
+                })?;
 
-            let shutdown: Symbol<PluginShutdownFn> = lib
-                .get(b"plugin_shutdown")
-                .map_err(|e| LoaderError::SymbolNotFound("plugin_shutdown".to_string(), e.to_string()))?;
+            let shutdown: Symbol<PluginShutdownFn> = lib.get(b"plugin_shutdown").map_err(|e| {
+                LoaderError::SymbolNotFound("plugin_shutdown".to_string(), e.to_string())
+            })?;
 
-            let get_tools: Symbol<PluginGetToolsFn> = lib
-                .get(b"plugin_get_tools")
-                .map_err(|e| LoaderError::SymbolNotFound("plugin_get_tools".to_string(), e.to_string()))?;
+            let get_tools: Symbol<PluginGetToolsFn> =
+                lib.get(b"plugin_get_tools").map_err(|e| {
+                    LoaderError::SymbolNotFound("plugin_get_tools".to_string(), e.to_string())
+                })?;
 
-            let execute_tool: Symbol<PluginExecuteToolFn> = lib
-                .get(b"plugin_execute_tool")
-                .map_err(|e| LoaderError::SymbolNotFound("plugin_execute_tool".to_string(), e.to_string()))?;
+            let execute_tool: Symbol<PluginExecuteToolFn> =
+                lib.get(b"plugin_execute_tool").map_err(|e| {
+                    LoaderError::SymbolNotFound("plugin_execute_tool".to_string(), e.to_string())
+                })?;
 
-            let on_hook: Symbol<PluginOnHookFn> = lib
-                .get(b"plugin_on_hook")
-                .map_err(|e| LoaderError::SymbolNotFound("plugin_on_hook".to_string(), e.to_string()))?;
+            let on_hook: Symbol<PluginOnHookFn> = lib.get(b"plugin_on_hook").map_err(|e| {
+                LoaderError::SymbolNotFound("plugin_on_hook".to_string(), e.to_string())
+            })?;
 
-            let free_string: Symbol<PluginFreeStringFn> = lib
-                .get(b"plugin_free_string")
-                .map_err(|e| LoaderError::SymbolNotFound("plugin_free_string".to_string(), e.to_string()))?;
+            let free_string: Symbol<PluginFreeStringFn> =
+                lib.get(b"plugin_free_string").map_err(|e| {
+                    LoaderError::SymbolNotFound("plugin_free_string".to_string(), e.to_string())
+                })?;
 
-            let get_last_error: Symbol<PluginGetLastErrorFn> = lib
-                .get(b"plugin_get_last_error")
-                .map_err(|e| LoaderError::SymbolNotFound("plugin_get_last_error".to_string(), e.to_string()))?;
+            let get_last_error: Symbol<PluginGetLastErrorFn> =
+                lib.get(b"plugin_get_last_error").map_err(|e| {
+                    LoaderError::SymbolNotFound("plugin_get_last_error".to_string(), e.to_string())
+                })?;
 
             let ffi = PluginFFI {
                 initialize: *initialize,
@@ -119,13 +124,8 @@ impl PluginLoader {
                 get_last_error: *get_last_error,
             };
 
-            self.plugins.insert(
-                plugin_id.to_string(),
-                LoadedPlugin {
-                    _library: lib,
-                    ffi,
-                },
-            );
+            self.plugins
+                .insert(plugin_id.to_string(), LoadedPlugin { _library: lib, ffi });
 
             Ok(())
         }
@@ -147,11 +147,10 @@ impl PluginLoader {
             .get(plugin_id)
             .ok_or_else(|| LoaderError::PluginNotLoaded(plugin_id.to_string()))?;
 
-        let ctx_json = serde_json::to_string(ctx)
-            .map_err(|e| LoaderError::JsonError(e.to_string()))?;
+        let ctx_json =
+            serde_json::to_string(ctx).map_err(|e| LoaderError::JsonError(e.to_string()))?;
 
-        let ctx_cstr = CString::new(ctx_json)
-            .map_err(|e| LoaderError::JsonError(e.to_string()))?;
+        let ctx_cstr = CString::new(ctx_json).map_err(|e| LoaderError::JsonError(e.to_string()))?;
 
         unsafe {
             let result = (plugin.ffi.initialize)(ctx_cstr.as_ptr());
@@ -240,17 +239,21 @@ impl PluginLoader {
     }
 
     /// 执行工具调用
-    pub fn execute_tool(&self, plugin_id: &str, call: &ToolCall) -> Result<ToolResult, LoaderError> {
+    pub fn execute_tool(
+        &self,
+        plugin_id: &str,
+        call: &ToolCall,
+    ) -> Result<ToolResult, LoaderError> {
         let plugin = self
             .plugins
             .get(plugin_id)
             .ok_or_else(|| LoaderError::PluginNotLoaded(plugin_id.to_string()))?;
 
-        let call_json = serde_json::to_string(call)
-            .map_err(|e| LoaderError::JsonError(e.to_string()))?;
+        let call_json =
+            serde_json::to_string(call).map_err(|e| LoaderError::JsonError(e.to_string()))?;
 
-        let call_cstr = CString::new(call_json)
-            .map_err(|e| LoaderError::JsonError(e.to_string()))?;
+        let call_cstr =
+            CString::new(call_json).map_err(|e| LoaderError::JsonError(e.to_string()))?;
 
         unsafe {
             let result_ptr = (plugin.ffi.execute_tool)(call_cstr.as_ptr());
@@ -286,14 +289,14 @@ impl PluginLoader {
             .get(plugin_id)
             .ok_or_else(|| LoaderError::PluginNotLoaded(plugin_id.to_string()))?;
 
-        let hook_cstr = CString::new(hook_name)
-            .map_err(|e| LoaderError::JsonError(e.to_string()))?;
+        let hook_cstr =
+            CString::new(hook_name).map_err(|e| LoaderError::JsonError(e.to_string()))?;
 
-        let data_json = serde_json::to_string(data)
-            .map_err(|e| LoaderError::JsonError(e.to_string()))?;
+        let data_json =
+            serde_json::to_string(data).map_err(|e| LoaderError::JsonError(e.to_string()))?;
 
-        let data_cstr = CString::new(data_json)
-            .map_err(|e| LoaderError::JsonError(e.to_string()))?;
+        let data_cstr =
+            CString::new(data_json).map_err(|e| LoaderError::JsonError(e.to_string()))?;
 
         unsafe {
             let result_ptr = (plugin.ffi.on_hook)(hook_cstr.as_ptr(), data_cstr.as_ptr());
