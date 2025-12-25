@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Command Bridge Console</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+        margin: 0;
+        background: #0d1117;
+        color: #dce5ff;
+      }
+      header {
+        padding: 16px 20px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      main {
+        padding: 16px 20px 40px;
+        max-height: calc(100vh - 64px);
+        overflow-y: auto;
+        display: flex;
+        gap: 16px;
+      }
+      section {
+        flex: 1;
+        min-width: 0;
+      }
+      h3 {
+        margin-top: 0;
+      }
+      .card {
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 12px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .requests .card {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .history-entry h4 {
+        margin: 0 0 6px;
+        font-size: 14px;
+      }
+      .history-entry pre,
+      .result pre {
+        margin: 6px 0 0;
+        padding: 8px;
+        background: rgba(0, 0, 0, 0.25);
+        border-radius: 4px;
+        overflow-x: auto;
+      }
+      .meta {
+        font-size: 12px;
+        opacity: 0.8;
+      }
+      .status {
+        font-weight: 600;
+      }
+      .status.ok {
+        color: #7ee787;
+      }
+      .status.fail {
+        color: #ff7b72;
+      }
+      button {
+        background: transparent;
+        color: inherit;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      button.refresh {
+        background: #238636;
+        border-color: #238636;
+      }
+      button.approve {
+        color: #0f5132;
+        background: #2ea043;
+        border-color: #2ea043;
+      }
+      button.reject {
+        color: #ffe3e0;
+        border-color: #ff7b72;
+      }
+      .error {
+        color: #ff7b72;
+        margin-top: 8px;
+      }
+      .result {
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 12px;
+        background: rgba(34, 197, 94, 0.08);
+      }
+      .result.hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h2>Command Bridge Console</h2>
+      <p class="meta">
+        每次 AI 请求命令时会在这里排队，您可以审阅参数并选择“允许”或“拒绝”。历史纪录会实时刷新。
+      </p>
+      <button class="refresh" type="button" id="manual-refresh">立即刷新</button>
+      <div id="error" class="error" hidden></div>
+    </header>
+    <main>
+      <section class="requests">
+        <h3>待审批命令</h3>
+        <div id="request-list"></div>
+      </section>
+      <section class="history">
+        <h3>历史记录</h3>
+        <div id="history"></div>
+        <div id="latest-result" class="result hidden"></div>
+      </section>
+    </main>
+    <script>
+      const historyEl = document.getElementById('history');
+      const requestEl = document.getElementById('request-list');
+      const errorEl = document.getElementById('error');
+      const refreshBtn = document.getElementById('manual-refresh');
+      const resultEl = document.getElementById('latest-result');
+      const historyUrl = 'plugin://localhost/command-bridge/data/command-history.json';
+      const requestsUrl = 'plugin://localhost/command-bridge/data/command-requests.json';
+
+      refreshBtn.addEventListener('click', refreshAll);
+      requestEl.addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const id = target.dataset.id;
+        if (!id) return;
+        if (target.classList.contains('approve')) {
+          await sendDecision(id, 'approve');
+        } else if (target.classList.contains('reject')) {
+          await sendDecision(id, 'reject');
+        }
+      });
+
+      async function refreshAll() {
+        await Promise.all([loadRequests(), loadHistory()]);
+      }
+
+      async function loadRequests() {
+        try {
+          const response = await fetch(`${requestsUrl}?t=${Date.now()}`);
+          if (!response.ok) {
+            if (response.status === 404) {
+              renderRequests([]);
+              return;
+            }
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const data = await response.json();
+          renderRequests(Array.isArray(data) ? data : []);
+        } catch (err) {
+          console.error('请求列表读取失败', err);
+          errorEl.textContent = `无法读取请求列表: ${err.message}`;
+          errorEl.hidden = false;
+        }
+      }
+
+      async function loadHistory() {
+        try {
+          const response = await fetch(`${historyUrl}?t=${Date.now()}`);
+          if (!response.ok) {
+            if (response.status === 404) {
+              renderHistory([]);
+              return;
+            }
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const data = await response.json();
+          renderHistory(Array.isArray(data) ? data : []);
+          errorEl.hidden = true;
+        } catch (err) {
+          errorEl.textContent = `无法读取历史: ${err.message}`;
+          errorEl.hidden = false;
+        }
+      }
+
+      function renderRequests(requests) {
+        if (!requests.length) {
+          requestEl.innerHTML = '<p>当前没有待审批的命令。</p>';
+          return;
+        }
+        const pending = requests.filter((r) => r.state === 'Pending');
+        const others = requests.filter((r) => r.state !== 'Pending');
+        requestEl.innerHTML = [
+          ...pending.map((req) => requestCard(req, true)),
+          ...others.slice(-5).map((req) => requestCard(req, false)),
+        ].join('');
+      }
+
+      function requestCard(req, actionable) {
+        const created = new Date(req.created_at || req.createdAt || Date.now()).toLocaleString();
+        return `
+          <article class="card">
+            <div><strong>${req.command}</strong> · <span>${req.path}</span></div>
+            <div class="meta">${created} · includeHidden=${req.include_hidden ?? req.includeHidden}</div>
+            <div class="meta">状态：${req.state}${req.message ? ` · ${req.message}` : ''}</div>
+            ${actionable
+              ? `<div style="display:flex;gap:8px;">
+                  <button class="approve" data-id="${req.id}">允许执行</button>
+                  <button class="reject" data-id="${req.id}">拒绝</button>
+                </div>`
+              : ''}
+          </article>
+        `;
+      }
+
+      function renderHistory(records) {
+        if (!records.length) {
+          historyEl.innerHTML = '<p>暂无记录，等待第一次审批。</p>';
+          return;
+        }
+        historyEl.innerHTML = records
+          .slice()
+          .reverse()
+          .map((record) => {
+            const statusClass = record.success ? 'ok' : 'fail';
+            const timestamp = new Date(record.timestamp).toLocaleString();
+            return `
+              <article class="card history-entry">
+                <h4>${record.display_name}</h4>
+                <div class="meta">
+                  <span class="status ${statusClass}">exit ${record.status_code}</span>
+                  · <span>${timestamp}</span>
+                  · <span>${record.program} ${record.args.join(' ')}</span>
+                  ${record.working_dir ? `· <span>${record.working_dir}</span>` : ''}
+                </div>
+                <pre>${escapeHtml(record.stdout || '(no stdout)')}</pre>
+                ${record.stderr ? `<pre>stderr:\n${escapeHtml(record.stderr)}</pre>` : ''}
+              </article>
+            `;
+          })
+          .join('');
+      }
+
+      async function sendDecision(requestId, decision) {
+        try {
+          const payload = encodeURIComponent(
+            JSON.stringify({ requestId, decision })
+          );
+          const response = await fetch(
+            `pluginevent://localhost/plugin-tool?plugin=command-bridge&tool=handle_request&args=${payload}`
+          );
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const result = await response.json();
+          if (!result.success) {
+            throw new Error(result.error || '审批失败');
+          }
+          showResult(result.data);
+          await refreshAll();
+        } catch (err) {
+          errorEl.textContent = `操作失败: ${err.message}`;
+          errorEl.hidden = false;
+        }
+      }
+
+      function showResult(data) {
+        if (!data) {
+          resultEl.classList.add('hidden');
+          return;
+        }
+        const entries = Array.isArray(data.entries) ? data.entries.slice(0, 20) : [];
+        resultEl.innerHTML = `
+          <div><strong>请求 ${data.requestId}</strong> · 状态：${data.status}</div>
+          ${data.path ? `<div class="meta">${data.path}</div>` : ''}
+          <pre>${escapeHtml(entries.join('\n') || data.stdout || '(no stdout)')}</pre>
+          ${data.stderr ? `<pre>stderr:\n${escapeHtml(data.stderr)}</pre>` : ''}
+        `;
+        resultEl.classList.remove('hidden');
+      }
+
+      function escapeHtml(input) {
+        return (input || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+
+      refreshAll();
+      setInterval(refreshAll, 5000);
+    </script>
+  </body>
+</html>

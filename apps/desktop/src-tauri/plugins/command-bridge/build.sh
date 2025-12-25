@@ -2,9 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PLUGIN_ID="test-a"
-CRATE_NAME="test-a-plugin"
-LIB_BASE="test_a_plugin"
+PLUGIN_ID="command-bridge"
+CRATE_NAME="command_bridge_plugin"
+LIB_BASE="command_bridge_plugin"
 
 case "$(uname -s)" in
   Darwin*) LIB_PREFIX="lib"; LIB_EXT="dylib" ;;

@@ -8,7 +8,7 @@ use cocoa::appkit::{NSWindow, NSWindowStyleMask};
 #[cfg(target_os = "macos")]
 use cocoa::base::id;
 
-use plugins::PluginManager;
+use plugins::{PluginManager, ToolCall};
 use std::sync::Mutex;
 use tauri::{GlobalShortcutManager, Manager};
 
@@ -106,7 +106,7 @@ fn get_clipboard_text() -> Result<String, String> {
 /// - title: 窗口标题
 /// - data: 传递给窗口的初始数据
 #[tauri::command]
-async fn open_plugin_window(
+pub async fn open_plugin_window(
     app: tauri::AppHandle,
     plugin_id: String,
     window_name: String,
@@ -494,6 +494,67 @@ fn main() {
                         .header("Content-Type", "application/json")
                         .header("Access-Control-Allow-Origin", "*")
                         .body(r#"{"success":true}"#.as_bytes().to_vec())
+                }
+
+                "plugin-tool" => {
+                    let plugin_id = match params.get("plugin") {
+                        Some(id) if !id.is_empty() => id.clone(),
+                        _ => {
+                            return tauri::http::ResponseBuilder::new()
+                                .status(400)
+                                .header("Access-Control-Allow-Origin", "*")
+                                .body(r#"{"error":"missing plugin"}"#.as_bytes().to_vec());
+                        }
+                    };
+
+                    let tool_name = match params.get("tool") {
+                        Some(name) if !name.is_empty() => name.clone(),
+                        _ => {
+                            return tauri::http::ResponseBuilder::new()
+                                .status(400)
+                                .header("Access-Control-Allow-Origin", "*")
+                                .body(r#"{"error":"missing tool"}"#.as_bytes().to_vec());
+                        }
+                    };
+
+                    let args_raw = params.get("args").cloned().unwrap_or_else(|| "{}".to_string());
+                    let decoded = urlencoding::decode(&args_raw).unwrap_or_else(|_| args_raw.into());
+                    let arguments: serde_json::Value = serde_json::from_str(&decoded)
+                        .unwrap_or(serde_json::Value::Object(Default::default()));
+
+                    let manager_state = match app.state::<Mutex<PluginManager>>().lock() {
+                        Ok(state) => state,
+                        Err(e) => {
+                            eprintln!("[PluginEvent] 获取插件管理器失败: {}", e);
+                            return tauri::http::ResponseBuilder::new()
+                                .status(500)
+                                .header("Access-Control-Allow-Origin", "*")
+                                .body(r#"{"error":"manager unavailable"}"#.as_bytes().to_vec());
+                        }
+                    };
+
+                    let call = ToolCall {
+                        name: tool_name,
+                        arguments,
+                    };
+
+                    match manager_state.execute_tool(&plugin_id, &call) {
+                        Ok(result) => {
+                            let payload = serde_json::to_vec(&result).unwrap_or_else(|_| b"{}".to_vec());
+                            tauri::http::ResponseBuilder::new()
+                                .status(200)
+                                .header("Content-Type", "application/json")
+                                .header("Access-Control-Allow-Origin", "*")
+                                .body(payload)
+                        }
+                        Err(e) => {
+                            eprintln!("[PluginEvent] 执行工具失败: {}", e);
+                            tauri::http::ResponseBuilder::new()
+                                .status(500)
+                                .header("Access-Control-Allow-Origin", "*")
+                                .body(format!("{{\"error\":\"{}\"}}", e).into_bytes())
+                        }
+                    }
                 }
 
                 _ => {

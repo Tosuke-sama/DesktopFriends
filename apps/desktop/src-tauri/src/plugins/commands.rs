@@ -79,7 +79,8 @@ pub fn plugin_get_tools(
 
 /// 执行插件工具
 #[tauri::command]
-pub fn plugin_execute_tool(
+pub async fn plugin_execute_tool(
+    app: tauri::AppHandle,
     manager: State<'_, Mutex<PluginManager>>,
     plugin_id: String,
     tool_name: String,
@@ -90,9 +91,59 @@ pub fn plugin_execute_tool(
         name: tool_name,
         arguments,
     };
-    manager
+    let result = manager
         .execute_tool(&plugin_id, &call)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    if let Err(e) = handle_tool_side_effects(&app, &plugin_id, &result).await {
+        eprintln!(
+            "[PluginCommands] 处理工具副作用失败: plugin={} err={}",
+            plugin_id, e
+        );
+    }
+
+    Ok(result)
+}
+
+async fn handle_tool_side_effects(
+    app: &tauri::AppHandle,
+    plugin_id: &str,
+    result: &ToolResult,
+) -> Result<(), String> {
+    let data = match &result.data {
+        Value::Object(map) => map,
+        _ => return Ok(()),
+    };
+
+    let action = data
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    match action {
+        "open_window" => {
+            let window_name = data
+                .get("window")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "缺少 window 字段".to_string())?;
+            let title = data
+                .get("title")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let window_data = data.get("windowData").cloned();
+
+            crate::open_plugin_window(
+                app.clone(),
+                plugin_id.to_string(),
+                window_name.to_string(),
+                title,
+                window_data,
+            )
+            .await
+            .map(|_| ())
+        }
+        _ => Ok(()),
+    }
 }
 
 /// 触发钩子

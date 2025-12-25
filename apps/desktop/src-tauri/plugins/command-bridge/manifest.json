@@ -1,0 +1,38 @@
+{
+  "id": "command-bridge",
+  "name": "Command Bridge",
+  "version": "0.1.0",
+  "author": "TableFri",
+  "description": "Controlled shell command runner",
+  "main": "libcommand_bridge_plugin.dylib",
+  "ui": {
+    "panel": "ui/Panel.vue",
+    "position": "sidebar",
+    "windows": {
+      "console": {
+        "path": "ui/console.html",
+        "title": "Command Bridge Console",
+        "width": 640,
+        "height": 520
+      }
+    }
+  },
+  "permissions": [
+    "list_directory"
+  ],
+  "tools": [
+    {
+      "name": "list_directory",
+      "description": "List files inside a directory via ls/dir"
+    },
+    {
+      "name": "bridge_status",
+      "description": "Inspect Command Bridge status, allowed roots and history"
+    },
+    {
+      "name": "handle_request",
+      "description": "Internal approval handler triggered by the console window"
+    }
+  ],
+  "hooks": []
+}
