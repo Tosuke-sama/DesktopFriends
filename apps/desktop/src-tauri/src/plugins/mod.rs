@@ -12,7 +12,7 @@ pub mod registry;
 pub mod window;
 
 // 重新导出常用类型
-pub use api::ToolCall;
+pub use api::{PluginContext, PluginInfo, PluginManifest, ToolCall, ToolDefinition, ToolResult};
 pub use manager::PluginManager;
 
 // 重新导出命令（用于 Tauri invoke_handler）

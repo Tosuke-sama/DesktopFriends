@@ -1,7 +1,7 @@
 [workspace]
 members = [
     ".",
-    "plugins/tablefri-plugin-api",
+    "plugins/common",
     "plugins/examples/pdf-reader",
     "plugins/command-bridge",
     "plugins/shell-commander",

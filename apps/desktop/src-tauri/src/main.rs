@@ -98,8 +98,6 @@ fn get_clipboard_text() -> Result<String, String> {
     clipboard.get_text().map_err(|e| e.to_string())
 }
 
-// open_plugin_window 已移至 plugins::commands 模块
-
 /// 处理文件打开（供外部调用或内部触发）
 fn emit_file_open_event(app_handle: &tauri::AppHandle, file_path: &str) {
     let path = std::path::Path::new(file_path);
@@ -247,11 +245,7 @@ fn main() {
             // 构建完整文件路径
             let file_path = plugins_dir.join(path);
 
-            println!(
-                "[PluginProtocol] 请求文件: {} (exists: {})",
-                path,
-                file_path.exists()
-            );
+            println!("[PluginProtocol] 请求文件: {} -> {:?}", path, file_path);
 
             if file_path.exists() {
                 match std::fs::read(&file_path) {
@@ -301,13 +295,9 @@ fn main() {
                 .map(|s| s.into_owned())
                 .unwrap_or(encoded_path);
 
-            let file_path = std::path::Path::new(&path);
+            println!("[LocalFileProtocol] 请求文件: {}", path);
 
-            println!(
-                "[LocalFileProtocol] 请求: {} (exists: {})",
-                path,
-                file_path.exists()
-            );
+            let file_path = std::path::Path::new(&path);
 
             if file_path.exists() {
                 match std::fs::read(file_path) {
@@ -436,13 +426,12 @@ fn main() {
                         .cloned()
                         .unwrap_or_else(|| "{}".to_string());
                     let decoded = urlencoding::decode(&args_raw)
-                        .map(|s| s.into_owned())
-                        .unwrap_or_else(|_| args_raw.clone());
+                        .unwrap_or_else(|_| std::borrow::Cow::Borrowed(args_raw.as_str()));
                     let arguments: serde_json::Value = serde_json::from_str(&decoded)
                         .unwrap_or(serde_json::Value::Object(Default::default()));
 
-                    let manager_state = app.state::<Mutex<PluginManager>>();
-                    let manager_guard = match manager_state.lock() {
+                    let manager_mutex = app.state::<Mutex<PluginManager>>();
+                    let manager_guard = match manager_mutex.lock() {
                         Ok(guard) => guard,
                         Err(e) => {
                             eprintln!("[PluginEvent] 获取插件管理器失败: {}", e);

@@ -440,12 +440,20 @@ name = "command_bridge_plugin"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "common",
  "dirs",
  "serde",
  "serde_json",
- "tablefri-plugin-api",
  "thiserror 1.0.69",
  "uuid",
+]
+
+[[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2356,10 +2364,10 @@ dependencies = [
 name = "pdf-reader-plugin"
 version = "1.0.0"
 dependencies = [
+ "common",
  "lopdf",
  "serde",
  "serde_json",
- "tablefri-plugin-api",
 ]
 
 [[package]]
@@ -3168,9 +3176,9 @@ dependencies = [
 name = "shell-commander-plugin"
 version = "0.1.0"
 dependencies = [
+ "common",
  "serde",
  "serde_json",
- "tablefri-plugin-api",
 ]
 
 [[package]]
@@ -3366,14 +3374,6 @@ dependencies = [
  "tokio",
  "urlencoding",
  "zip",
-]
-
-[[package]]
-name = "tablefri-plugin-api"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]

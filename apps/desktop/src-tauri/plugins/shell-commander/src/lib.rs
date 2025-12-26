@@ -1,11 +1,15 @@
 //! shell-commander
+use common::*;
 use serde_json::Value;
-use tablefri_plugin_api::*;
 
-pub struct ShellCommanderPlugin { ctx: Option<PluginContext> }
+pub struct ShellCommanderPlugin {
+    ctx: Option<PluginContext>,
+}
 
 impl Default for ShellCommanderPlugin {
-    fn default() -> Self { Self { ctx: None } }
+    fn default() -> Self {
+        Self { ctx: None }
+    }
 }
 
 impl Plugin for ShellCommanderPlugin {
@@ -14,18 +18,56 @@ impl Plugin for ShellCommanderPlugin {
         println!("[ShellCommanderPlugin] initialized: {}", ctx.plugin_id);
         Ok(())
     }
-    fn shutdown(&mut self) -> Result<(), String> { println!("[ShellCommanderPlugin] shutdown"); Ok(()) }
+    fn shutdown(&mut self) -> Result<(), String> {
+        println!("[ShellCommanderPlugin] shutdown");
+        Ok(())
+    }
     fn get_tools(&self) -> Vec<ToolDefinition> {
-        let plugin_id = self.ctx.as_ref().map(|c| c.plugin_id.clone()).unwrap_or_else(|| "shell-commander".into());
-        vec![ToolDefinition::no_params(&plugin_id, "hello", "Say hello from shell-commander")]
+        let plugin_id = self
+            .ctx
+            .as_ref()
+            .map(|c| c.plugin_id.clone())
+            .unwrap_or_else(|| "shell-commander".into());
+
+        vec![
+            // ToolDefinition::no_params(&plugin_id, "hello", "Say hello from shell-commander")
+            ToolDefinition::new(
+                &plugin_id,
+                "get_system_info",
+                "获取当前操作系统环境信息",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "os": {
+                            "type": "string",
+                            "description": "当前操作系统"
+                        },
+                        "arch": {
+                            "type": "string",
+                            "description": "当前架构"
+                        }
+                    },
+                    "required": ["os", "arch"]
+                }),
+            ),
+        ]
     }
     fn execute_tool(&self, call: &ToolCall) -> ToolResult {
         match call.name.as_str() {
-            "hello" => ToolResult::success(json!({ "message": "Hello from shell-commander" })),
+            "get_system_info" => {
+                let res = json!({
+                    "os": std::env::consts::OS,
+                    "arch": std::env::consts::ARCH,
+                });
+                println!("[ShellCommanderPlugin] get_system_info: {}", res);
+                ToolResult::success(res)
+            }
             _ => ToolResult::error("Unknown tool"),
         }
     }
-    fn on_hook(&mut self, _hook: &str, _data: &Value) -> Option<Value> { None }
+    fn on_hook(&mut self, _hook: &str, _data: &Value) -> Option<Value> {
+        None
+    }
 }
 
 export_plugin!(ShellCommanderPlugin, ShellCommanderPlugin::default);

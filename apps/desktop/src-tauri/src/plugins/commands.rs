@@ -192,19 +192,13 @@ pub fn plugin_refresh(manager: State<'_, Mutex<PluginManager>>) -> Result<(), St
 }
 
 /// 打开插件窗口
-///
-/// 参数:
-/// - plugin_id: 插件 ID
-/// - window_name: 窗口名称（对应 manifest 中的 ui.windows 配置）
-/// - title: 窗口标题
-/// - data: 传递给窗口的初始数据
 #[tauri::command]
 pub async fn open_plugin_window(
     app: tauri::AppHandle,
     plugin_id: String,
     window_name: String,
     title: Option<String>,
-    data: Option<serde_json::Value>,
+    data: Option<Value>,
 ) -> Result<String, String> {
     super::window::open_plugin_window_internal(app, plugin_id, window_name, title, data).await
 }
