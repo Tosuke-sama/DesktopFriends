@@ -4,9 +4,9 @@ mod config;
 mod requests;
 mod utils;
 
+use command::{CommandError, CommandExecutor, CommandInterceptor, CommandPlan, NativeCommand};
 use commands::base::CommandSpec;
 use commands::ls::LsCommand;
-use command::{CommandError, CommandExecutor, CommandInterceptor, CommandPlan, NativeCommand};
 use config::BridgeConfig;
 use requests::{CommandRequest, RequestState, RequestStore};
 use serde_json::{json, Value};
@@ -40,6 +40,32 @@ impl Default for CommandBridgePlugin {
 }
 
 impl CommandBridgePlugin {
+    /// 将命令结果格式化给 LLM，带状态与截断输出。
+    fn format_command_result(
+        &self,
+        status: &str,
+        plan_label: &str,
+        stdout: &str,
+        stderr: &str,
+    ) -> String {
+        let stdout_display = truncate(stdout, 1_500);
+        let stderr_display = truncate(stderr, 1_500);
+
+        let mut parts = vec![
+            format!("status: {}", status),
+            format!("command: {}", plan_label),
+        ];
+
+        if !stdout_display.is_empty() {
+            parts.push(format!("stdout (truncated):\n{}", stdout_display));
+        }
+        if !stderr_display.is_empty() {
+            parts.push(format!("stderr (truncated):\n{}", stderr_display));
+        }
+
+        parts.join("\n\n")
+    }
+
     /// 返回插件在宿主中的唯一标识。
     fn plugin_id(&self) -> String {
         self.ctx
@@ -139,10 +165,17 @@ impl CommandBridgePlugin {
                 req.message = Some("已被用户拒绝".to_string());
             }) {
                 Ok(updated) => {
+                    let tool_result = self.format_command_result(
+                        "rejected",
+                        &updated.command,
+                        "",
+                        "用户拒绝执行此命令",
+                    );
                     return ToolResult::success(json!({
                         "requestId": updated.id,
                         "status": format!("{}", updated.state),
                         "message": updated.message,
+                        "toolResult": tool_result,
                         "llmMessage": format!(
                             "【系统提示】用户拒绝了查看目录 {} 的请求。",
                             updated.path
@@ -177,21 +210,13 @@ impl CommandBridgePlugin {
 
         match self.executor.execute(&plan) {
             Ok((output, _)) => {
-                let entries: Vec<String> = output
-                    .stdout
-                    .lines()
-                    .map(|line| line.trim())
-                    .filter(|line| !line.is_empty())
-                    .map(|line| line.to_string())
-                    .collect();
-
                 let final_state = if output.success {
                     RequestState::Completed
                 } else {
                     RequestState::Failed
                 };
                 let summary = if output.success {
-                    format!("执行完成，共 {} 条目", entries.len())
+                    "执行完成".to_string()
                 } else {
                     "命令返回非 0 状态".to_string()
                 };
@@ -209,42 +234,19 @@ impl CommandBridgePlugin {
                     eprintln!("[CommandBridge] 更新请求状态失败: {}", e);
                 }
 
-                let tool_result_message = if output.success {
-                    let display_entries: Vec<String> =
-                        entries.iter().take(30).cloned().collect();
-                    let entries_text = if entries.len() <= 30 {
-                        display_entries.join("\n")
-                    } else {
-                        format!(
-                            "{}\n... (还有 {} 项未显示)",
-                            display_entries.join("\n"),
-                            entries.len() - 30
-                        )
-                    };
-                    format!(
-                        "工具 list_directory 执行成功。\n\n目录路径: {}\n文件/文件夹总数: {}\n\n目录内容:\n{}",
-                        plan_label,
-                        entries.len(),
-                        entries_text
-                    )
+                let status = if output.success {
+                    "completed"
                 } else {
-                    format!(
-                        "工具 list_directory 执行失败。\n\n目录路径: {}\n错误信息: {}",
-                        plan_label,
-                        if output.stderr.is_empty() {
-                            "未知错误"
-                        } else {
-                            &output.stderr
-                        }
-                    )
+                    "failed"
                 };
+                let tool_result_message =
+                    self.format_command_result(status, &plan_label, &output.stdout, &output.stderr);
 
                 ToolResult::success(json!({
                     "requestId": request.id,
                     "status": format!("{}", final_state),
                     "path": request.path,
                     "includeHidden": request.include_hidden,
-                    "entries": entries,
                     "stdout": output.stdout,
                     "stderr": output.stderr,
                     "success": output.success,
@@ -267,19 +269,22 @@ impl CommandBridgePlugin {
         let plan_label = format!("{}: {}", plan.display_name, plan.description);
         match self.executor.execute(&plan) {
             Ok((output, _)) => {
-                let entries: Vec<String> = output
-                    .stdout
-                    .lines()
-                    .map(|line| line.trim())
-                    .filter(|line| !line.is_empty())
-                    .map(|line| line.to_string())
-                    .collect();
+                let status = if output.success {
+                    "completed"
+                } else {
+                    "failed"
+                };
                 ToolResult::success(json!({
                     "command": plan_label,
-                    "entries": entries,
                     "stdout": output.stdout,
                     "stderr": output.stderr,
                     "success": output.success,
+                    "toolResult": self.format_command_result(
+                        status,
+                        &plan_label,
+                        &output.stdout,
+                        &output.stderr,
+                    ),
                 }))
             }
             Err(e) => ToolResult::error(&format!("命令执行失败: {e}")),
@@ -408,5 +413,19 @@ impl CommandInterceptor for DirectoryGuard {
             });
         }
         Ok(())
+    }
+}
+
+/// 截断字符串到指定长度，超出部分添加省略号。
+fn truncate(value: &str, limit: usize) -> String {
+    if value.len() <= limit {
+        value.to_string()
+    } else if limit == 0 {
+        String::new()
+    } else if limit == 1 {
+        "…".to_string()
+    } else {
+        let end = limit.saturating_sub(1);
+        format!("{}…", &value[..end])
     }
 }
