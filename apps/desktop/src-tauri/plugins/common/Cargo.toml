@@ -1,5 +1,5 @@
 [package]
-name = "tablefri-plugin-api"
+name = "common"
 version = "0.1.0"
 edition = "2021"
 description = "TableFri 插件开发 API"

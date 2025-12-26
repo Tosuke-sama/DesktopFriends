@@ -6,12 +6,12 @@
 //! - 获取文档信息
 //! - 响应文本选择事件
 
+use common::*;
 use lopdf::Document;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tablefri_plugin_api::*;
 
 /// PDF 文档信息
 #[derive(Debug, Clone, Serialize, Deserialize)]

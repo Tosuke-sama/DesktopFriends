@@ -4,6 +4,7 @@ members = [
     "plugins/tablefri-plugin-api",
     "plugins/examples/pdf-reader",
     "plugins/command-bridge",
+    "plugins/shell-commander",
 ]
 resolver = "2"
 
