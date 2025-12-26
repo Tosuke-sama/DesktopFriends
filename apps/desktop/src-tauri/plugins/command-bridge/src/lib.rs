@@ -5,8 +5,6 @@ mod requests;
 mod utils;
 
 use command::{CommandError, CommandExecutor, CommandInterceptor, CommandPlan, NativeCommand};
-use commands::base::CommandSpec;
-use commands::ls::LsCommand;
 use config::BridgeConfig;
 use requests::{CommandRequest, RequestState, RequestStore};
 use serde_json::{json, Value};
@@ -14,7 +12,7 @@ use std::path::PathBuf;
 use tablefri_plugin_api::*;
 use utils::path_utils::PathUtils;
 
-const TOOL_LIST_DIRECTORY: &str = "list_directory";
+const TOOL_RUN_COMMAND: &str = "run_command";
 const TOOL_STATUS: &str = "bridge_status";
 const TOOL_HANDLE_REQUEST: &str = "handle_request";
 
@@ -74,55 +72,61 @@ impl CommandBridgePlugin {
             .unwrap_or_else(|| "command-bridge".to_string())
     }
 
-    /// 工具实现：发起“列出目录”请求。
-    ///
-    /// 若命令需要审批，则创建请求并弹出窗口；否则直接执行。
-    fn list_directory(&self, args: &Value) -> ToolResult {
-        let include_hidden = args
-            .get("includeHidden")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
-        let target_dir =
-            match PathUtils::resolve_directory(args.get("path").and_then(|v| v.as_str())) {
+    /// 工具实现：发起任意命令请求（统一审批后执行）。
+    /// 必填参数：command(string)；可选：args(string[])、workdir(string)。
+    fn run_command(&self, args: &Value) -> ToolResult {
+        let command = match args.get("command").and_then(|v| v.as_str()) {
+            Some(c) if !c.trim().is_empty() => c.trim(),
+            _ => return ToolResult::error("缺少 command 参数"),
+        };
+        let command_args: Vec<String> = args
+            .get("args")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let workdir =
+            match PathUtils::resolve_directory(args.get("workdir").and_then(|v| v.as_str())) {
                 Ok(dir) => dir,
                 Err(e) => return ToolResult::error(&e),
             };
 
-        if !target_dir.exists() {
-            return ToolResult::error("指定的目录不存在");
+        if !workdir.exists() {
+            return ToolResult::error("指定的工作目录不存在");
         }
-        if !target_dir.is_dir() {
-            return ToolResult::error("目标路径不是目录");
+        if !workdir.is_dir() {
+            return ToolResult::error("工作目录必须是文件夹");
         }
-        let normalized = target_dir
-            .canonicalize()
-            .unwrap_or_else(|_| target_dir.clone());
-
+        let normalized = workdir.canonicalize().unwrap_or_else(|_| workdir.clone());
         if !self.config.is_allowed(&normalized) {
-            return ToolResult::error("该目录暂未被授权访问，可在配置中添加");
+            return ToolResult::error("该工作目录未被授权访问");
         }
 
-        let command = LsCommand::new(normalized.clone(), include_hidden, true);
-        if !command.requires_approval() {
-            return self.execute_command(&command);
-        }
-
-        let path_string = normalized.display().to_string();
+        // 构建命令计划（仅当前平台，仍兼容 Windows 计划占位）
+        // 统一要求审批：创建请求并弹窗
+        let plan_label = format!("{} {}", command, command_args.join(" "));
         match self
             .requests
-            .create_request(TOOL_LIST_DIRECTORY, &path_string, include_hidden)
+            .create_request(TOOL_RUN_COMMAND, &plan_label, true)
         {
             Ok(request) => {
                 let window_data = json!({
                     "request": request.clone(),
                     "requests": self.requests.list(),
+                    "command": command,
+                    "args": command_args,
+                    "workdir": normalized.display().to_string(),
                 });
                 ToolResult::success(json!({
                     "action": "open_window",
                     "window": "console",
                     "title": "Command Bridge Console",
                     "windowData": window_data,
-                    "message": "等待用户授权以执行 ls -a/dir"
+                    "message": "等待用户授权以执行命令"
                 }))
             }
             Err(e) => ToolResult::error(&format!("记录请求失败: {e}")),
@@ -204,9 +208,10 @@ impl CommandBridgePlugin {
             return ToolResult::error(&format!("无法更新请求状态: {e}"));
         }
 
-        let command = LsCommand::new(PathBuf::from(&request.path), request.include_hidden, true);
-        let plan = command.build_plan();
-        let plan_label = format!("{}: {}", plan.display_name, plan.description);
+        // 这里的 request.path 保存的是计划标签（run_command 时写入），不再强制目录。
+        // 执行时需要解析存储的命令与工作目录，这里简单按空格分割（因已在创建时存储 plan_label）。
+        let plan_label = request.path.clone();
+        let plan = self.build_plan_from_label(&plan_label);
 
         match self.executor.execute(&plan) {
             Ok((output, _)) => {
@@ -263,32 +268,44 @@ impl CommandBridgePlugin {
         }
     }
 
-    /// 直接执行命令（跳过审批）。
-    fn execute_command(&self, command: &dyn CommandSpec) -> ToolResult {
-        let plan = command.build_plan();
-        let plan_label = format!("{}: {}", plan.display_name, plan.description);
-        match self.executor.execute(&plan) {
-            Ok((output, _)) => {
-                let status = if output.success {
-                    "completed"
-                } else {
-                    "failed"
-                };
-                ToolResult::success(json!({
-                    "command": plan_label,
-                    "stdout": output.stdout,
-                    "stderr": output.stderr,
-                    "success": output.success,
-                    "toolResult": self.format_command_result(
-                        status,
-                        &plan_label,
-                        &output.stdout,
-                        &output.stderr,
-                    ),
-                }))
-            }
-            Err(e) => ToolResult::error(&format!("命令执行失败: {e}")),
+    /// 根据传入命令构建计划（当前平台优先，保留 Windows 占位）。
+    fn build_plan(&self, cmd: &str, args: &[String], workdir: &PathBuf) -> CommandPlan {
+        let unix = NativeCommand::new(cmd)
+            .with_args(args.iter().cloned())
+            .working_dir(workdir);
+        let windows = NativeCommand::new("cmd")
+            .with_args(
+                std::iter::once("/C".to_string())
+                    .chain(std::iter::once(cmd.to_string()))
+                    .chain(args.iter().cloned()),
+            )
+            .working_dir(workdir);
+        CommandPlan::new(
+            TOOL_RUN_COMMAND,
+            "Run command",
+            format!("Run `{}` in {}", cmd, workdir.display()),
+            unix,
+        )
+        .with_windows(windows)
+    }
+
+    /// 从标签恢复计划（简单拆分，假设标签格式为 "cmd args..."，工作目录未知则用当前工作目录）。
+    fn build_plan_from_label(&self, label: &str) -> CommandPlan {
+        let mut parts = label
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+        if parts.is_empty() {
+            return self.build_plan(
+                "echo",
+                &["<empty>".to_string()],
+                &std::env::current_dir().unwrap_or_default(),
+            );
         }
+        let cmd = parts.remove(0);
+        let args = parts;
+        let workdir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        self.build_plan(&cmd, &args, &workdir)
     }
 }
 
@@ -319,21 +336,26 @@ impl Plugin for CommandBridgePlugin {
         vec![
             ToolDefinition::new(
                 &plugin_id,
-                TOOL_LIST_DIRECTORY,
-                "执行命令列出目录内容（底层执行 ls/dir 命令）。此工具会执行系统命令，默认需要用户授权。支持 includeHidden (默认 true) 和 path 参数。",
+                TOOL_RUN_COMMAND,
+                "执行任意命令（默认需要审批）。参数：command 必填，args 可选（数组），workdir 可选（默认插件数据目录）。",
                 json!({
                     "type": "object",
                     "properties": {
-                        "path": {
+                        "command": {
                             "type": "string",
-                            "description": "要列出的目标目录路径，支持 ~ 开头"
+                            "description": "要执行的命令名"
                         },
-                        "includeHidden": {
-                            "type": "boolean",
-                            "description": "是否包含隐藏文件。非 Windows 下映射到 ls -a",
-                            "default": true
+                        "args": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "命令参数列表"
+                        },
+                        "workdir": {
+                            "type": "string",
+                            "description": "工作目录，默认插件数据目录"
                         }
-                    }
+                    },
+                    "required": ["command"]
                 }),
             ),
             ToolDefinition::no_params(
@@ -367,7 +389,7 @@ impl Plugin for CommandBridgePlugin {
     /// 工具分发入口，根据名称路由到具体实现。
     fn execute_tool(&self, call: &ToolCall) -> ToolResult {
         match call.name.as_str() {
-            TOOL_LIST_DIRECTORY => self.list_directory(&call.arguments),
+            TOOL_RUN_COMMAND => self.run_command(&call.arguments),
             TOOL_STATUS => self.bridge_status(),
             TOOL_HANDLE_REQUEST => self.handle_request(&call.arguments),
             _ => ToolResult::error(&format!("未知工具: {}", call.name)),
