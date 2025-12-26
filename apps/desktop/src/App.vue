@@ -30,6 +30,7 @@ import {
   type TextSelectEvent,
 } from "./composables/useSystemEvents";
 import { DEV_ENV } from "./main";
+import { JokerConsole } from "@desktopfriends/platform/tauri";
 
 const {
   currentPet,
@@ -468,8 +469,10 @@ const handleSend = async (message: string) => {
       response.content,
       currentPet.value.name
     );
+    JokerConsole["🤡"]("桌宠 response", response);
   } catch (error) {
     console.error("Chat error:", error);
+    JokerConsole["🤡"]("聊天异常", error);
     const errorMsg = "抱歉，出了点问题...";
     showBubble(errorMsg, currentPet.value.name);
     addPetMessage(currentPet.value.name, errorMsg);
@@ -478,7 +481,10 @@ const handleSend = async (message: string) => {
 
 // 发送系统消息（用于文件打开、文本选择等系统事件）
 const sendSystemMessage = async (systemPrompt: string) => {
-  if (chat.isLoading.value) return;
+  if (chat.isLoading.value) {
+    JokerConsole["🤡"]("chat.isLoading 为 true，消息未发送");
+    return;
+  }
 
   try {
     // 获取当前可用的动作和表情
@@ -513,6 +519,7 @@ const sendSystemMessage = async (systemPrompt: string) => {
       currentPet.value.name
     );
   } catch (error) {
+    JokerConsole["🤡"]("sendSystemMessage 发送消息失败", error);
     console.error("System message error:", error);
   }
 };

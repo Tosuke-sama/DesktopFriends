@@ -98,6 +98,30 @@ fn get_clipboard_text() -> Result<String, String> {
     clipboard.get_text().map_err(|e| e.to_string())
 }
 
+/// 前端调试日志输出到终端
+#[tauri::command]
+fn debug_log(level: String, message: String, data: Option<serde_json::Value>) {
+    let timestamp = chrono::Local::now().format("%H:%M:%S%.3f");
+    let level_colored = match level.as_str() {
+        "error" => format!("\x1b[31m[ERROR]\x1b[0m"),   // 红色
+        "warn" => format!("\x1b[33m[WARN]\x1b[0m"),     // 黄色
+        "info" => format!("\x1b[36m[INFO]\x1b[0m"),     // 青色
+        "debug" => format!("\x1b[90m[DEBUG]\x1b[0m"),   // 灰色
+        _ => format!("[{}]", level.to_uppercase()),
+    };
+    
+    if let Some(data_value) = data {
+        println!("{} {} \x1b[35m[Frontend]\x1b[0m {} | {}", 
+            timestamp, level_colored, message, 
+            serde_json::to_string_pretty(&data_value).unwrap_or_else(|_| "{}".to_string())
+        );
+    } else {
+        println!("{} {} \x1b[35m[Frontend]\x1b[0m {}", 
+            timestamp, level_colored, message
+        );
+    }
+}
+
 /// 处理文件打开（供外部调用或内部触发）
 fn emit_file_open_event(app_handle: &tauri::AppHandle, file_path: &str) {
     let path = std::path::Path::new(file_path);
@@ -211,6 +235,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_cursor_position,
             get_clipboard_text,
+            debug_log,
             // 插件系统命令
             plugins::open_plugin_window,
             plugins::plugin_install,
