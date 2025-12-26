@@ -62,13 +62,6 @@
         opacity: 0.5;
         cursor: not-allowed;
       }
-      .history-entry pre {
-        margin: 6px 0 0;
-        padding: 8px;
-        background: rgba(0, 0, 0, 0.25);
-        border-radius: 4px;
-        overflow-x: auto;
-      }
       .status.ok {
         color: #7ee787;
       }
@@ -105,14 +98,9 @@
         <h3>待审批命令</h3>
         <div id="request-list"></div>
       </section>
-      <section>
-        <h3>最近执行</h3>
-        <div id="history"></div>
-      </section>
     </main>
     <script>
       const requestEl = document.getElementById("request-list");
-      const historyEl = document.getElementById("history");
       const errorEl = document.getElementById("error");
       const resultEl = document.getElementById("result");
 
@@ -138,7 +126,6 @@
       const initialState = readInitialState();
       let currentRequest = initialState?.request || null;
       let requestsList = initialState?.requests || [];
-      let historyList = initialState?.history || [];
 
       // 如果没有单独的 request，从 requests 列表中找到第一个 Pending 的
       if (!currentRequest && requestsList.length > 0) {
@@ -148,7 +135,6 @@
 
       // 立即渲染
       renderRequests(requestsList, currentRequest);
-      renderHistory(historyList);
 
       // 点击事件处理
       requestEl.addEventListener("click", async (event) => {
@@ -221,9 +207,6 @@
             if (Array.isArray(data.requests)) {
               requestsList = data.requests;
             }
-            if (Array.isArray(data.history)) {
-              historyList = data.history;
-            }
             // 找到当前请求的最新状态
             if (currentRequest) {
               const updated = requestsList.find(
@@ -234,7 +217,6 @@
               }
             }
             renderRequests(requestsList, currentRequest);
-            renderHistory(historyList);
           }
         } catch (err) {
           console.warn("[Console] 刷新状态失败", err);
@@ -309,48 +291,6 @@
                   req.stdout
                     ? `<pre style="margin-top:8px;font-size:12px;">${escapeHtml(
                         req.stdout.split("\n").slice(0, 10).join("\n")
-                      )}</pre>`
-                    : ""
-                }
-              </article>
-            `;
-          })
-          .join("");
-      }
-
-      function renderHistory(records) {
-        if (!records.length) {
-          historyEl.innerHTML = "<p>暂无执行记录。</p>";
-          return;
-        }
-
-        historyEl.innerHTML = records
-          .slice()
-          .reverse()
-          .slice(0, 10) // 只显示最近 10 条
-          .map((record) => {
-            const status = record.success ? "ok" : "fail";
-            const timestamp = new Date(record.timestamp).toLocaleString();
-            return `
-              <article class="card history-entry">
-                <div><strong>${
-                  record.display_name || record.command
-                }</strong></div>
-                <div class="meta">
-                  <span class="status ${status}">exit ${
-              record.status_code
-            }</span>
-                  · ${timestamp}
-                  ${record.working_dir ? `· ${record.working_dir}` : ""}
-                </div>
-                <pre>${escapeHtml(
-                  (record.stdout || "").split("\n").slice(0, 20).join("\n") ||
-                    "(no stdout)"
-                )}</pre>
-                ${
-                  record.stderr
-                    ? `<pre style="color:#ff7b72;">stderr:\n${escapeHtml(
-                        record.stderr
                       )}</pre>`
                     : ""
                 }

@@ -25,15 +25,11 @@
     },
     {
       "name": "bridge_status",
-      "description": "Inspect Command Bridge status, allowed roots and history"
+      "description": "Inspect Command Bridge status and allowed roots"
     },
     {
       "name": "handle_request",
       "description": "Internal approval handler triggered by the console window"
-    },
-    {
-      "name": "poll_updates",
-      "description": "Long-poll for queue/history updates"
     }
   ],
   "hooks": []

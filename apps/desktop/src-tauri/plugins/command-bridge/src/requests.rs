@@ -1,12 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::PathBuf;
 use std::sync::Mutex;
 use thiserror::Error;
 use uuid::Uuid;
-
-use crate::REQUEST_FILE;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RequestState {
@@ -45,50 +41,29 @@ impl std::fmt::Display for RequestState {
 
 #[derive(Debug, Error)]
 pub enum RequestError {
-    #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("json error: {0}")]
-    Json(#[from] serde_json::Error),
     #[error("request not found: {0}")]
     NotFound(String),
 }
 
 pub struct RequestStore {
-    path: PathBuf,
     entries: Mutex<Vec<CommandRequest>>,
 }
 
 impl RequestStore {
-    pub fn new(path: PathBuf) -> Result<Self, RequestError> {
-        let entries = if path.exists() {
-            let data = fs::read_to_string(&path)?;
-            if data.trim().is_empty() {
-                Vec::new()
-            } else {
-                serde_json::from_str(&data)?
-            }
-        } else {
-            Vec::new()
-        };
-        Ok(Self {
-            path,
-            entries: Mutex::new(entries),
-        })
-    }
-
-    fn persist(&self, entries: &[CommandRequest]) -> Result<(), RequestError> {
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent)?;
+    /// 创建请求存储（纯内存实现）。
+    pub fn new() -> Self {
+        Self {
+            entries: Mutex::new(Vec::new()),
         }
-        let data = serde_json::to_string_pretty(entries)?;
-        fs::write(&self.path, data)?;
-        Ok(())
     }
 
+    /// 返回当前请求的快照（克隆）。
     pub fn list(&self) -> Vec<CommandRequest> {
         self.entries.lock().unwrap().clone()
     }
 
+    /// 新建一个等待审批的请求并持久化。
+    /// `command`/`path`/`include_hidden` 分别为命令名、目标路径、是否包含隐藏项。
     pub fn create_request(
         &self,
         command: &str,
@@ -110,10 +85,11 @@ impl RequestStore {
             stderr: None,
         };
         entries.push(request.clone());
-        self.persist(&entries)?;
         Ok(request)
     }
 
+    /// 根据 `id` 更新一条请求，`mutator` 用于原地修改。
+    /// 会刷新 `updated_at` 并持久化，返回修改后的快照。
     pub fn update<F>(&self, id: &str, mutator: F) -> Result<CommandRequest, RequestError>
     where
         F: FnOnce(&mut CommandRequest),
@@ -126,10 +102,10 @@ impl RequestStore {
         mutator(request);
         request.updated_at = Utc::now();
         let snapshot = request.clone();
-        self.persist(&entries)?;
         Ok(snapshot)
     }
 
+    /// 按 `id` 获取请求（克隆）。
     pub fn get(&self, id: &str) -> Option<CommandRequest> {
         self.entries
             .lock()
@@ -137,16 +113,5 @@ impl RequestStore {
             .iter()
             .find(|r| r.id == id)
             .cloned()
-    }
-
-    pub fn public_path(&self, plugin_id: &str) -> String {
-        format!("plugin://localhost/{}/data/{}", plugin_id, self.file_name())
-    }
-
-    pub fn file_name(&self) -> String {
-        self.path
-            .file_name()
-            .map(|f| f.to_string_lossy().to_string())
-            .unwrap_or_else(|| REQUEST_FILE.to_string())
     }
 }

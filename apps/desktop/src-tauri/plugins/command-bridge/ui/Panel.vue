@@ -2,7 +2,7 @@
 const steps = [
   '在插件管理器中授权需要访问的目录（默认包含当前用户主目录）',
   '通过 LLM 调用 list_directory 工具登记一次受控命令',
-  'Console 窗口会弹出供你审批，只有同意后才会真正执行并记录历史'
+  'Console 窗口会弹出供你审批，只有同意后才会真正执行'
 ]
 </script>
 
@@ -13,7 +13,6 @@ const steps = [
     <ul>
       <li v-for="item in steps" :key="item">{{ item }}</li>
     </ul>
-    <p class="hint">历史记录保存在 <code>plugin://localhost/command-bridge/data/command-history.json</code>。</p>
   </div>
 </template>
 
