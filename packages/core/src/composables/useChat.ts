@@ -234,15 +234,26 @@ ${extToolsDesc}`;
   };
 
   // 执行工具调用（返回执行结果）
-  const executeToolCall = async (toolCall: ToolCall): Promise<string> => {
+  const executeToolCall = async (
+    toolCall: ToolCall,
+    callbacks?: {
+      log: (...args: any[]) => void;
+    }
+  ): Promise<string> => {
     // 检查是否为外部工具（插件工具）
     if (toolCall.name.startsWith("ext_")) {
       // 解析外部工具名称: ext_{source}_{toolName}
       // 注意：source 可能包含连字符（如 "command-bridge"），toolName 也可能包含下划线
       // 因此需要从后往前查找最后一个下划线作为分隔符
       const nameWithoutPrefix = toolCall.name.substring(4); // 移除 "ext_"
-      const lastUnderscoreIndex = nameWithoutPrefix.lastIndexOf("_");
+      const lastUnderscoreIndex = nameWithoutPrefix.indexOf("_");
 
+      callbacks?.log?.(
+        "[executeToolCall] lastUnderscoreIndex",
+        toolCall.name,
+        lastUnderscoreIndex,
+        "lastUnderscoreIndex\n"
+      );
       if (
         lastUnderscoreIndex > 0 &&
         lastUnderscoreIndex < nameWithoutPrefix.length - 1
@@ -282,6 +293,7 @@ ${extToolsDesc}`;
   const sendMessage = async (
     content: string,
     callbacks?: {
+      log?: (...args: any[]) => void;
       onError?: (error: string) => void;
     }
   ): Promise<ChatResponse> => {
@@ -299,15 +311,19 @@ ${extToolsDesc}`;
 
     try {
       // 第一步：请求工具调用
-      const firstResponse = await callLLMWithTools([
-        { role: "system", content: getSystemPrompt() },
-        ...messages.value,
-      ]);
+      const firstResponse = await callLLMWithTools(
+        [{ role: "system", content: getSystemPrompt() }, ...messages.value],
+        {
+          log: callbacks?.log,
+        }
+      );
 
       console.log("First response:", firstResponse);
+      callbacks?.log?.("First response:", firstResponse);
 
       // 如果有工具调用但没有文字内容，进行链式调用
       if (firstResponse.toolCalls.length > 0 && !firstResponse.content) {
+        callbacks?.log?.("[Chat] 开始执行工具调用...");
         // 构建 assistant 消息（包含 tool_calls）
         const assistantMessage: ExtendedMessage = {
           role: "assistant",
@@ -327,10 +343,23 @@ ${extToolsDesc}`;
         try {
           for (const tc of assistantMessage.tool_calls!) {
             try {
-              const toolResult = await executeToolCall({
-                name: tc.function.name,
-                arguments: JSON.parse(tc.function.arguments),
-              });
+              callbacks?.log?.(
+                "[Chat] 执行工具:",
+                tc.function.name,
+                "参数:",
+                tc.function.arguments
+              );
+              const toolResult = await executeToolCall(
+                {
+                  name: tc.function.name,
+                  arguments: JSON.parse(tc.function.arguments),
+                },
+                {
+                  log: (...args) =>
+                    callbacks?.log?.("[executeToolCall]", ...args),
+                }
+              );
+              callbacks?.log?.("[Chat] 工具执行结果:", toolResult);
               messages.value.push({
                 role: "tool",
                 content: toolResult,
@@ -435,7 +464,13 @@ ${extToolsDesc}`;
   };
 
   // 构建请求参数
-  const buildRequestParams = (msgs: ExtendedMessage[], withTools: boolean) => {
+  const buildRequestParams = (
+    msgs: ExtendedMessage[],
+    withTools: boolean,
+    callbacks?: {
+      log?: (...args: any[]) => void;
+    }
+  ) => {
     const { provider, apiKey, baseUrl, model } = llmConfig.value;
 
     let url: string;
@@ -443,6 +478,7 @@ ${extToolsDesc}`;
     let body: object;
 
     // 转换消息格式
+    callbacks?.log?.("[buildRequestParams] 原始消息", msgs);
     const formattedMessages = msgs.map((m) => {
       if (m.role === "tool") {
         return {
@@ -463,6 +499,8 @@ ${extToolsDesc}`;
 
     // 获取当前的工具定义（动态生成）
     const currentTools = getCurrentTools(provider);
+
+    callbacks?.log?.("[buildRequestParams] getCurrentTools", currentTools);
 
     switch (provider) {
       case "openai":
@@ -539,9 +577,12 @@ ${extToolsDesc}`;
 
   // 调用 LLM API（带工具）
   const callLLMWithTools = async (
-    msgs: ExtendedMessage[]
+    msgs: ExtendedMessage[],
+    callbacks?: {
+      log?: (...args: any[]) => void;
+    }
   ): Promise<ChatResponse> => {
-    const { url, headers, body } = buildRequestParams(msgs, true);
+    const { url, headers, body } = buildRequestParams(msgs, true, callbacks);
     console.log("LLM Request (with tools):", { url, body });
     return await doFetch(url, headers, body);
   };

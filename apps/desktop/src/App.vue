@@ -470,6 +470,7 @@ const handleSend = async (message: string) => {
       onError: (error: string) => {
         JokerConsole["🤡"]("聊天AI大模型原始回复异常", error);
       },
+      log: JokerConsole["🤡"],
     });
 
     // 处理工具调用

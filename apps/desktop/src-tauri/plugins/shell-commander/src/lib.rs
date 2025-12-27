@@ -29,28 +29,11 @@ impl Plugin for ShellCommanderPlugin {
             .map(|c| c.plugin_id.clone())
             .unwrap_or_else(|| "shell-commander".into());
 
-        vec![
-            // ToolDefinition::no_params(&plugin_id, "hello", "Say hello from shell-commander")
-            ToolDefinition::new(
-                &plugin_id,
-                "get_system_info",
-                "获取当前操作系统环境信息",
-                json!({
-                    "type": "object",
-                    "properties": {
-                        "os": {
-                            "type": "string",
-                            "description": "当前操作系统"
-                        },
-                        "arch": {
-                            "type": "string",
-                            "description": "当前架构"
-                        }
-                    },
-                    "required": ["os", "arch"]
-                }),
-            ),
-        ]
+        vec![ToolDefinition::no_params(
+            &plugin_id,
+            "get_system_info",
+            "获取当前操作系统和架构信息",
+        )]
     }
     fn execute_tool(&self, call: &ToolCall) -> ToolResult {
         match call.name.as_str() {
