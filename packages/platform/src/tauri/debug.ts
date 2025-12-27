@@ -24,9 +24,11 @@ async function sendLog(level: LogLevel, message: string, data?: any) {
 
 /**
  * 为什么叫做 Joker？
- * 因为突发恶疾想这么写 😊
+ * 因为这个可以帮助我们找出代码中的 🤡
+ * （其实纯粹是因为突发恶疾想叫这个名字 😊
  */
 const JokerConsole = {
+  /** 这个预期是安全的日志，在生产环境中不会生效（在打包构建的时候理应被干掉） */
   "🤡": (...args: any[]) => {
     console.log(...args);
     const message = args
@@ -54,7 +56,7 @@ const JokerConsole = {
   /**
    * 错误级别日志
    */
-  error: (message: string, data?: any) => {
+  "❌": (message: string, data?: any) => {
     console.error(message, data);
     sendLog("error", message, data);
   },

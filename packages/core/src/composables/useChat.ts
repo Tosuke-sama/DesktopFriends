@@ -279,9 +279,15 @@ ${extToolsDesc}`;
   };
 
   // 发送消息并获取响应（链式调用）
-  const sendMessage = async (content: string): Promise<ChatResponse> => {
+  const sendMessage = async (
+    content: string,
+    callbacks?: {
+      onError?: (error: string) => void;
+    }
+  ): Promise<ChatResponse> => {
     if (!llmConfig.value.apiKey) {
       error.value = "API Key 未配置";
+      callbacks?.onError?.("API Key 未配置");
       return simulateResponse(content);
     }
 
@@ -403,6 +409,7 @@ ${extToolsDesc}`;
         errorMessage.includes("Unauthorized")
       ) {
         console.warn("[Chat] API Key 可能无效，返回模拟回复");
+        callbacks?.onError?.("API Key 可能无效");
         return simulateResponse(content);
       }
 
@@ -413,12 +420,14 @@ ${extToolsDesc}`;
         errorMessage.includes("Failed to fetch")
       ) {
         console.warn("[Chat] 网络错误，返回模拟回复");
+        callbacks?.onError?.("网络错误");
         return simulateResponse(content);
       }
 
       // 其他错误：如果是工具执行后的 LLM 调用失败，尝试返回一个提示
       // 但不要影响后续的请求
       console.warn("[Chat] 请求失败，返回模拟回复。错误:", errorMessage);
+      callbacks?.onError?.(errorMessage);
       return simulateResponse(content);
     } finally {
       isLoading.value = false;

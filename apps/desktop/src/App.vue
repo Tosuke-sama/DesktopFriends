@@ -41,7 +41,9 @@ const {
 } = useSettings();
 const chat = useChat();
 const { chatHistory, addUserMessage, addPetMessage, addOtherPetMessage } =
-  useChatHistory();
+  useChatHistory({
+    logger: JokerConsole as Record<string, (...args: any[]) => void>,
+  });
 
 console.log("DEV_ENV", DEV_ENV);
 if (DEV_ENV.IS_RESET_DATA) {
@@ -397,27 +399,34 @@ const showThinkingAndResponse = async (
 const handleToolCalls = (
   toolCalls: Array<{ name: string; arguments: Record<string, unknown> }>
 ) => {
-  for (const tool of toolCalls) {
-    if (tool.name === "playMotion") {
-      const name = tool.arguments.name as string;
-      const motionInfo = motionDetails.value.find((m) => m.name === name);
-      if (motionInfo) {
-        live2dRef.value?.playMotionByIndex(motionInfo.group, motionInfo.index);
-      } else {
-        live2dRef.value?.playMotion(name);
-      }
-      // 同步动作给其他宠物
-      if (isConnected.value && isRegistered.value) {
-        sendAction("motion", name);
-      }
-    } else if (tool.name === "setExpression") {
-      const name = tool.arguments.name as string;
-      live2dRef.value?.setExpression(name);
-      // 同步表情给其他宠物
-      if (isConnected.value && isRegistered.value) {
-        sendAction("expression", name);
+  try {
+    for (const tool of toolCalls) {
+      if (tool.name === "playMotion") {
+        const name = tool.arguments.name as string;
+        const motionInfo = motionDetails.value.find((m) => m.name === name);
+        if (motionInfo) {
+          live2dRef.value?.playMotionByIndex(
+            motionInfo.group,
+            motionInfo.index
+          );
+        } else {
+          live2dRef.value?.playMotion(name);
+        }
+        // 同步动作给其他宠物
+        if (isConnected.value && isRegistered.value) {
+          sendAction("motion", name);
+        }
+      } else if (tool.name === "setExpression") {
+        const name = tool.arguments.name as string;
+        live2dRef.value?.setExpression(name);
+        // 同步表情给其他宠物
+        if (isConnected.value && isRegistered.value) {
+          sendAction("expression", name);
+        }
       }
     }
+  } catch (error) {
+    JokerConsole["🤡"]("handleToolCalls 处理表情动作异常", error);
   }
 };
 
@@ -445,18 +454,23 @@ const handleSend = async (message: string) => {
     // 生成工具提示
     const toolPrompt = generateToolUsagePrompt(motions, expressions);
     const fullPrompt = `${currentPet.value.prompt}\n\n${toolPrompt}`;
-
-    // 设置配置
-    chat.setCustomPrompt(fullPrompt);
-    chat.setAvailableActions(motions, expressions);
-    chat.setConfig({
+    const chatConfig = {
       provider: settings.value.llmProvider,
       apiKey: settings.value.llmApiKey,
       baseUrl: settings.value.llmBaseUrl,
       model: settings.value.llmModel,
-    });
+    };
+    JokerConsole["🤡"]("聊天AI配置", chatConfig);
+    // 设置配置
+    chat.setCustomPrompt(fullPrompt);
+    chat.setAvailableActions(motions, expressions);
+    chat.setConfig(chatConfig);
 
-    const response = await chat.sendMessage(message);
+    const response = await chat.sendMessage(message, {
+      onError: (error: string) => {
+        JokerConsole["🤡"]("聊天AI大模型原始回复异常", error);
+      },
+    });
 
     // 处理工具调用
     if (response.toolCalls && response.toolCalls.length > 0) {
@@ -469,7 +483,7 @@ const handleSend = async (message: string) => {
       response.content,
       currentPet.value.name
     );
-    JokerConsole["🤡"]("桌宠 response", response);
+    JokerConsole["🤡"]("最终 response", response);
   } catch (error) {
     console.error("Chat error:", error);
     JokerConsole["🤡"]("聊天异常", error);
@@ -1030,6 +1044,7 @@ onUnmounted(() => {
       <div class="pet-info">
         <span class="pet-name">{{ currentPet.name }}</span>
         <span class="ai-status" :class="{ active: isLLMConfigured }">
+          <!-- TODO: 当 AI 连接失败的时候，要显示连接失败，然后点击可以重新连接 -->
           {{ isLLMConfigured ? "AI" : "离线" }}
         </span>
         <span v-if="isConnected" class="p2p-status">P2P</span>
