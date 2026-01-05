@@ -209,9 +209,6 @@ importers:
 
   packages/ui:
     dependencies:
-      '@capacitor/core':
-        specifier: ^6.0.0
-        version: 6.2.1
       '@desktopfriends/core':
         specifier: workspace:*
         version: link:../core
