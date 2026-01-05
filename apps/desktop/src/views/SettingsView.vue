@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useSettings, useServerDiscovery, useP2P, useChatHistory, DEFAULT_PET_PROMPT, PRESET_BACKGROUNDS } from '@desktopfriends/core'
+import { ModelFormatGuide, ModelUploadResult, type ModelUploadResultInfo } from '@desktopfriends/ui'
 import { useModelUpload } from '../composables/useModelUpload'
 
 const emit = defineEmits<{
@@ -106,6 +107,14 @@ const showMessage = (message: string, type: 'success' | 'error' | 'info' = 'succ
     showSnackbar.value = false
   }, 3000)
 }
+
+// 格式指南弹窗
+const showFormatGuide = ref(false)
+const uploadErrorDetails = ref<string[]>([])
+
+// 模型上传结果
+const showModelUploadResult = ref(false)
+const modelUploadInfo = ref<ModelUploadResultInfo | null>(null)
 
 const llmProviders = [
   { value: 'openai', label: 'OpenAI' },
@@ -251,15 +260,33 @@ const handleUploadModel = async () => {
   const modelName = fileName.replace('.zip', '') || `model_${Date.now()}`
 
   showMessage('正在上传模型...', 'info')
-  const resultPath = await uploadModel(filePath, modelName)
+  const result = await uploadModel(filePath, modelName)
 
-  if (resultPath) {
+  if (result) {
     // 更新当前宠物的模型路径
-    updatePet(currentPet.value.id, { modelPath: resultPath })
+    updatePet(currentPet.value.id, { modelPath: result.path })
     await loadUploadedModels()
-    showMessage('模型上传成功！', 'success')
+
+    // 显示上传结果对话框
+    modelUploadInfo.value = {
+      modelName: result.info.modelName,
+      expressionCount: result.info.expressionCount,
+      motionGroups: result.info.motionGroups,
+      textureCount: result.info.textureCount,
+      totalFiles: result.info.totalFiles,
+    }
+    showModelUploadResult.value = true
   } else {
-    showMessage('模型上传失败', 'error')
+    // 解析错误信息
+    const errorMsg = uploadProgress.value.message || '上传失败'
+    if (errorMsg.includes('压缩包格式不符合要求')) {
+      // 提取错误详情
+      const lines = errorMsg.split('\n').filter((l) => l.startsWith('缺少'))
+      uploadErrorDetails.value = lines
+      showFormatGuide.value = true
+    } else {
+      showMessage(errorMsg, 'error')
+    }
   }
 }
 
@@ -799,6 +826,20 @@ const handleClearBackground = () => {
         </div>
       </Transition>
     </Teleport>
+
+    <!-- 格式指南弹窗 -->
+    <ModelFormatGuide
+      :visible="showFormatGuide"
+      :errors="uploadErrorDetails"
+      @close="showFormatGuide = false"
+    />
+
+    <!-- 模型上传结果 -->
+    <ModelUploadResult
+      :show="showModelUploadResult"
+      :info="modelUploadInfo"
+      @update:show="showModelUploadResult = $event"
+    />
 
     <!-- Snackbar -->
     <Transition name="snackbar">

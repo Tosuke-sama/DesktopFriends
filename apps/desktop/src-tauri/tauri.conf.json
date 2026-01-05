@@ -17,6 +17,10 @@
         "all": true,
         "scope": ["$APPDATA/**", "$DOCUMENT/**", "$HOME/.tablefri/**"]
       },
+      "protocol": {
+        "asset": true,
+        "assetScope": ["$APPDATA/**"]
+      },
       "window": {
         "all": true
       },
@@ -64,7 +68,7 @@
       }
     },
     "security": {
-      "csp": null
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' asset: https://asset.localhost localfile: data: blob:; connect-src 'self' asset: https://asset.localhost localfile: ws: wss: http: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'"
     },
     "windows": [
       {

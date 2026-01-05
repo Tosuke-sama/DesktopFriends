@@ -9,6 +9,27 @@ export interface UploadProgress {
   message: string
 }
 
+// 动作组信息
+export interface MotionGroupInfo {
+  group: string
+  count: number
+}
+
+// 模型上传结果信息
+export interface ModelUploadInfo {
+  modelName: string
+  expressionCount: number
+  motionGroups: MotionGroupInfo[]
+  textureCount: number
+  totalFiles: number
+}
+
+// 上传结果
+export interface UploadResult {
+  path: string
+  info: ModelUploadInfo
+}
+
 export function useModelUpload() {
   const isUploading = ref(false)
   const uploadProgress = ref<UploadProgress>({
@@ -22,9 +43,9 @@ export function useModelUpload() {
    * 上传并解压 Live2D 模型 zip 文件
    * @param file 用户选择的 zip 文件
    * @param modelName 模型名称（用作文件夹名）
-   * @returns 模型 JSON 文件的路径，失败返回 null
+   * @returns 上传结果（包含路径和模型信息），失败返回 null
    */
-  const uploadModel = async (file: File, modelName: string): Promise<string | null> => {
+  const uploadModel = async (file: File, modelName: string): Promise<UploadResult | null> => {
     if (!file.name.endsWith('.zip')) {
       error.value = '请选择 zip 格式的模型文件'
       return null
@@ -44,20 +65,26 @@ export function useModelUpload() {
 
       // 查找模型文件 (model.json 或 model3.json)
       let foundModelPath: string | null = null
+      let modelJsonContent: string | null = null
 
-      zip.forEach((relativePath, _zipEntry) => {
+      for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
         const fileName = relativePath.toLowerCase()
         if (fileName.endsWith('.model3.json') || fileName.endsWith('.model.json')) {
           if (!foundModelPath || relativePath.length < foundModelPath.length) {
             // 优先选择路径最短的（最顶层的）
             foundModelPath = relativePath
+            // 读取模型 JSON 内容
+            modelJsonContent = await zipEntry.async('string')
           }
         }
-      })
+      }
 
-      if (!foundModelPath) {
+      if (!foundModelPath || !modelJsonContent) {
         throw new Error('未找到模型文件 (model.json 或 model3.json)')
       }
+
+      // 解析模型 JSON 获取信息
+      const modelInfo = parseModelJson(modelJsonContent, modelName)
 
       // 现在 foundModelPath 一定是 string（使用类型断言，因为 TS 无法追踪 forEach 回调中的类型变化）
       const modelJsonPath: string = foundModelPath
@@ -148,19 +175,25 @@ export function useModelUpload() {
           updateProgress('saving', progress, `正在保存文件 (${savedCount}/${files.length})...`)
         }
 
+        // 更新总文件数
+        modelInfo.totalFiles = savedCount
+
         // 获取模型 JSON 的完整路径
         const modelFileName = modelJsonPath.includes('/')
           ? modelJsonPath.substring(modelJsonPath.lastIndexOf('/') + 1)
           : modelJsonPath
 
         // 返回可访问的 URL
-        const result = await Filesystem.getUri({
+        const uriResult = await Filesystem.getUri({
           path: `${targetDir}/${modelFileName}`,
           directory: Directory.Data,
         })
 
         updateProgress('done', 100, '模型上传成功！')
-        return result.uri
+        return {
+          path: uriResult.uri,
+          info: modelInfo,
+        }
       } else {
         // Web 平台：使用 IndexedDB 或 localStorage
         // 这里简化处理，返回一个相对路径提示
@@ -218,6 +251,78 @@ export function useModelUpload() {
       console.error('Delete model error:', e)
       return false
     }
+  }
+
+  /**
+   * 解析模型 JSON 获取模型信息
+   */
+  const parseModelJson = (jsonContent: string, modelName: string): ModelUploadInfo => {
+    const info: ModelUploadInfo = {
+      modelName,
+      expressionCount: 0,
+      motionGroups: [],
+      textureCount: 0,
+      totalFiles: 0,
+    }
+
+    try {
+      const modelData = JSON.parse(jsonContent)
+
+      // Cubism 3/4 格式 (model3.json)
+      if (modelData.FileReferences) {
+        const fileRefs = modelData.FileReferences
+
+        // 表情
+        if (fileRefs.Expressions && Array.isArray(fileRefs.Expressions)) {
+          info.expressionCount = fileRefs.Expressions.length
+        }
+
+        // 动作
+        if (fileRefs.Motions) {
+          for (const [groupName, motions] of Object.entries(fileRefs.Motions)) {
+            if (Array.isArray(motions)) {
+              info.motionGroups.push({
+                group: groupName,
+                count: motions.length,
+              })
+            }
+          }
+        }
+
+        // 纹理
+        if (fileRefs.Textures && Array.isArray(fileRefs.Textures)) {
+          info.textureCount = fileRefs.Textures.length
+        }
+      }
+      // Cubism 2 格式 (model.json)
+      else {
+        // 表情
+        if (modelData.expressions && Array.isArray(modelData.expressions)) {
+          info.expressionCount = modelData.expressions.length
+        }
+
+        // 动作
+        if (modelData.motions) {
+          for (const [groupName, motions] of Object.entries(modelData.motions)) {
+            if (Array.isArray(motions)) {
+              info.motionGroups.push({
+                group: groupName,
+                count: motions.length,
+              })
+            }
+          }
+        }
+
+        // 纹理
+        if (modelData.textures && Array.isArray(modelData.textures)) {
+          info.textureCount = modelData.textures.length
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse model JSON for info:', e)
+    }
+
+    return info
   }
 
   const updateProgress = (stage: UploadProgress['stage'], progress: number, message: string) => {

@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
-import { ChatInput, ChatBubble, ChatHistory, VoiceButton } from "@desktopfriends/ui";
+import {
+  ChatInput,
+  ChatBubble,
+  ChatHistory,
+  VoiceButton,
+} from "@desktopfriends/ui";
 import {
   useChat,
   useSettings,
@@ -273,7 +278,9 @@ async function handlePetMessage(message: PetMessage) {
     // 我是旁观者，显示格式化消息
     if (message.messageType === "master_to_pet") {
       // 主人对宠物说的话
-      displayContent = `[主人] 对 [${message.toName || message.from}] 说: ${message.content}`;
+      displayContent = `[主人] 对 [${message.toName || message.from}] 说: ${
+        message.content
+      }`;
     } else if (message.messageType === "pet_to_pet") {
       // 宠物对宠物说的话
       displayContent = `[${message.from}] 对 [${message.toName}] 说: ${message.content}`;
@@ -652,10 +659,7 @@ const disconnectXiaozhi = () => {
 
 // 监听 XiaoZhi 设置变化，自动连接/断开
 watch(
-  () => [
-    settings.value.xiaozhiEnabled,
-    settings.value.xiaozhiOtaUrl,
-  ] as const,
+  () => [settings.value.xiaozhiEnabled, settings.value.xiaozhiOtaUrl] as const,
   ([enabled, otaUrl]) => {
     if (enabled && otaUrl) {
       // 启用且有 URL，自动连接
@@ -930,7 +934,11 @@ onUnmounted(() => {
     <!-- 宠物名称标签 -->
     <div class="pet-info">
       <span class="pet-name">{{ currentPet.name }}</span>
-      <span v-if="useXiaozhiBackend" class="xiaozhi-status" :class="{ active: isXiaozhiConnected }">
+      <span
+        v-if="useXiaozhiBackend"
+        class="xiaozhi-status"
+        :class="{ active: isXiaozhiConnected }"
+      >
         {{ xiaozhi.statusText.value }}
       </span>
       <span v-else class="ai-status" :class="{ active: isLLMConfigured }">
@@ -945,7 +953,9 @@ onUnmounted(() => {
     <!-- 输入区域 -->
     <div
       class="input-area-wrapper"
-      :style="{ bottom: keyboardHeight > 0 ? `${keyboardHeight + 12}px` : undefined }"
+      :style="{
+        bottom: keyboardHeight > 0 ? `${keyboardHeight + 12}px` : undefined,
+      }"
     >
       <ChatInput
         class="input-area"

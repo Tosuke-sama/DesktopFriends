@@ -6,7 +6,10 @@ use cocoa::appkit::{NSWindow, NSWindowStyleMask};
 #[cfg(target_os = "macos")]
 use cocoa::base::id;
 
+use std::fs;
+use std::path::Path;
 use tauri::Manager;
+use tauri::http::{Request, Response, ResponseBuilder};
 
 #[derive(serde::Serialize)]
 struct CursorPosition {
@@ -61,9 +64,76 @@ fn get_cursor_position(window: tauri::Window) -> CursorPosition {
     }
 }
 
+/// 获取文件的 MIME 类型
+fn get_mime_type(path: &str) -> &'static str {
+    let extension = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+
+    match extension.to_lowercase().as_str() {
+        "json" => "application/json",
+        "moc3" | "moc" => "application/octet-stream",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "motion3.json" => "application/json",
+        "exp3.json" => "application/json",
+        _ => "application/octet-stream",
+    }
+}
+
+/// 处理自定义 localfile:// 协议请求
+fn handle_localfile_protocol(request: &Request) -> Result<Response, Box<dyn std::error::Error>> {
+    let url = request.uri();
+    // URL 格式: localfile://localhost/path/to/file
+    let path = url.replace("localfile://localhost", "");
+    // URL 解码路径
+    let decoded_path = urlencoding::decode(&path)
+        .map(|s| s.into_owned())
+        .unwrap_or_else(|_| path.clone());
+
+    println!("[localfile] Requested: {}", decoded_path);
+
+    let file_path = Path::new(&decoded_path);
+    if !file_path.exists() {
+        println!("[localfile] File not found: {}", decoded_path);
+        return ResponseBuilder::new()
+            .status(404)
+            .header("Access-Control-Allow-Origin", "*")
+            .body(b"File not found".to_vec());
+    }
+
+    match fs::read(file_path) {
+        Ok(contents) => {
+            let mime_type = get_mime_type(&decoded_path);
+            println!("[localfile] Serving: {} ({}, {} bytes)", decoded_path, mime_type, contents.len());
+            ResponseBuilder::new()
+                .status(200)
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Allow-Methods", "GET, OPTIONS")
+                .header("Access-Control-Allow-Headers", "*")
+                .header("Content-Type", mime_type)
+                .body(contents)
+        }
+        Err(e) => {
+            println!("[localfile] Error reading file: {}", e);
+            ResponseBuilder::new()
+                .status(500)
+                .header("Access-Control-Allow-Origin", "*")
+                .body(format!("Error reading file: {}", e).into_bytes())
+        }
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![get_cursor_position])
+        // 注册自定义 localfile:// 协议，带有 CORS 头
+        .register_uri_scheme_protocol("localfile", |_app, request| {
+            handle_localfile_protocol(request)
+        })
         .setup(|app| {
             #[cfg(target_os = "macos")]
             {

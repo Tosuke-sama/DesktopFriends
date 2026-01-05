@@ -9,6 +9,8 @@ import {
   MdButton,
   MdSnackbar,
   XiaoZhiDebugPanel,
+  ModelUploadResult,
+  type ModelUploadResultInfo,
 } from "@desktopfriends/ui";
 import {
   useSettings,
@@ -100,6 +102,10 @@ const modelFileInputRef = ref<HTMLInputElement | null>(null);
 const showModelDeleteConfirm = ref(false);
 const modelToDelete = ref<string | null>(null);
 
+// 模型上传结果
+const showModelUploadResult = ref(false);
+const modelUploadInfo = ref<ModelUploadResultInfo | null>(null);
+
 // 加载已上传的模型列表
 onMounted(async () => {
   uploadedModels.value = await getUploadedModels();
@@ -126,21 +132,30 @@ const handleModelFileSelect = async (event: Event) => {
   }
 
   // 使用当前宠物名称作为模型名称
-  const modelPath = await uploadModel(file, currentPet.value.name);
+  const result = await uploadModel(file, currentPet.value.name);
 
-  if (modelPath) {
+  if (result) {
     // 更新宠物的模型路径
-    updatePet(currentPet.value.id, { modelPath });
-    snackbarMessage.value = "模型上传成功！";
-    snackbarType.value = "success";
+    updatePet(currentPet.value.id, { modelPath: result.path });
+
+    // 显示上传结果对话框
+    modelUploadInfo.value = {
+      modelName: result.info.modelName,
+      expressionCount: result.info.expressionCount,
+      motionGroups: result.info.motionGroups,
+      textureCount: result.info.textureCount,
+      totalFiles: result.info.totalFiles,
+    };
+    showModelUploadResult.value = true;
+
     // 刷新已上传模型列表
     uploadedModels.value = await getUploadedModels();
   } else if (modelUploadError.value) {
     snackbarMessage.value = modelUploadError.value;
     snackbarType.value = "error";
+    showSnackbar.value = true;
   }
 
-  showSnackbar.value = true;
   input.value = "";
 };
 
@@ -1354,7 +1369,11 @@ const handleClearBackground = () => {
       </Teleport>
 
       <!-- 小智调试页面 -->
-      <MdCard title="小智后端 (XiaoZhi)" class="card-animate" style="--delay: 6.5">
+      <MdCard
+        title="小智后端 (XiaoZhi)"
+        class="card-animate"
+        style="--delay: 6.5"
+      >
         <MdSwitch v-model="settings.xiaozhiEnabled" label="启用小智后端" />
 
         <template v-if="settings.xiaozhiEnabled">
@@ -1408,6 +1427,13 @@ const handleClearBackground = () => {
       v-model:show="showSnackbar"
       :message="snackbarMessage"
       :type="snackbarType"
+    />
+
+    <!-- 模型上传结果 -->
+    <ModelUploadResult
+      :show="showModelUploadResult"
+      :info="modelUploadInfo"
+      @update:show="showModelUploadResult = $event"
     />
   </div>
 </template>
@@ -2273,6 +2299,16 @@ const handleClearBackground = () => {
 /* Background Settings Styles */
 .hidden-input {
   display: none;
+  /* 使用 sr-only 技术隐藏，而不是 display: none，以确保在移动端 WebView 中能正确触发 */
+  /* position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0; */
 }
 
 .background-preview-section {

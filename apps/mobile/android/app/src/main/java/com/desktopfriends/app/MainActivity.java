@@ -1,19 +1,25 @@
 package com.desktopfriends.app;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Rect;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.PermissionRequest;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
@@ -23,13 +29,38 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    private static final String TAG = "MainActivity";
     private static final int RECORD_AUDIO_PERMISSION_REQUEST_CODE = 1001;
     private PermissionRequest pendingPermissionRequest;
     private boolean isKeyboardVisible = false;
     private View rootView;
 
+    // 文件选择器相关
+    private ValueCallback<Uri[]> filePathCallback;
+    private ActivityResultLauncher<Intent> fileChooserLauncher;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // 必须在 super.onCreate() 之前注册 ActivityResultLauncher
+        fileChooserLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                Log.d(TAG, "File chooser result: " + result.getResultCode());
+                if (filePathCallback != null) {
+                    Uri[] results = null;
+                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                        String dataString = result.getData().getDataString();
+                        if (dataString != null) {
+                            results = new Uri[]{Uri.parse(dataString)};
+                            Log.d(TAG, "Selected file: " + dataString);
+                        }
+                    }
+                    filePathCallback.onReceiveValue(results);
+                    filePathCallback = null;
+                }
+            }
+        );
+
         // 注册自定义插件
         registerPlugin(LocalServerPlugin.class);
         super.onCreate(savedInstanceState);
@@ -51,7 +82,7 @@ public class MainActivity extends BridgeActivity {
         webSettings.setAllowFileAccess(true);
         webSettings.setAllowContentAccess(true);
 
-        // 设置 WebChromeClient 处理麦克风权限
+        // 设置 WebChromeClient 处理麦克风权限和文件选择
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
@@ -68,6 +99,33 @@ public class MainActivity extends BridgeActivity {
                     }
                 }
                 runOnUiThread(() -> request.grant(request.getResources()));
+            }
+
+            // 处理文件选择器
+            @Override
+            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams fileChooserParams) {
+                Log.d(TAG, "onShowFileChooser called");
+
+                // 取消之前的回调
+                if (filePathCallback != null) {
+                    filePathCallback.onReceiveValue(null);
+                }
+                filePathCallback = callback;
+
+                try {
+                    // 创建文件选择 Intent
+                    Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("application/zip");
+
+                    Log.d(TAG, "Launching file chooser");
+                    fileChooserLauncher.launch(Intent.createChooser(intent, "选择模型文件"));
+                    return true;
+                } catch (Exception e) {
+                    Log.e(TAG, "Error launching file chooser", e);
+                    filePathCallback = null;
+                    return false;
+                }
             }
         });
 

@@ -48,6 +48,7 @@ const navigateTo = (view: ViewName) => {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html,
