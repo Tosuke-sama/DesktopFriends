@@ -77,8 +77,17 @@ const startMousePositionCheck = () => {
       // 从 Live2D 组件获取模型的实际边界
       const bounds = live2dRef.value?.getModelBounds();
 
-      // 如果模型还没加载，跳过
+      // 如果模型没有加载或加载失败，检查是否需要激活备用交互区域
       if (!bounds) {
+        // 检查模型是否处于加载失败状态（有错误）
+        const hasError = live2dRef.value?.error;
+        if (hasError) {
+          // 模型加载失败，激活 UI 让用户能进入设置
+          if (!isHoveringLive2D.value) {
+            isHoveringLive2D.value = true;
+            await appWindow.setIgnoreCursorEvents(false);
+          }
+        }
         return;
       }
       console.log("Cursor position:", cursor, "Model bounds:", bounds);

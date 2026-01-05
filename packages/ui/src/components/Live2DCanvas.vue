@@ -9,8 +9,39 @@ import {
 } from "vue";
 import * as PIXI from "pixi.js";
 import { Live2DModel } from "pixi-live2d-display";
-import { isMobilePlatform } from "@desktopfriends/platform";
+import { isDesktopPlatform } from "@desktopfriends/platform";
 import { useSettings } from "@desktopfriends/core";
+
+// 将本地文件路径转换为 localfile:// URL（仅桌面端）
+// 使用自定义 localfile:// 协议，该协议在 Tauri 后端注册并带有 CORS 头
+const convertToLocalfileUrl = (filePath: string): string => {
+  // 只编码每个路径段内的特殊字符，保留路径分隔符
+  const encodedPath = filePath
+    .split('/')
+    .map(segment => encodeURIComponent(segment))
+    .join('/');
+  return `localfile://localhost${encodedPath}`;
+};
+
+// 判断路径是否为文件系统绝对路径（而非 web 相对路径）
+const isFileSystemPath = (path: string): boolean => {
+  // macOS 文件系统路径特征
+  if (path.startsWith('/Users/') || path.startsWith('/Library/') ||
+      path.startsWith('/Applications/') || path.startsWith('/Volumes/') ||
+      path.startsWith('/private/') || path.startsWith('/tmp/')) {
+    return true;
+  }
+  // Linux 文件系统路径特征
+  if (path.startsWith('/home/') || path.startsWith('/var/') ||
+      path.startsWith('/opt/') || path.startsWith('/usr/')) {
+    return true;
+  }
+  // 包含 Application Support（macOS 应用数据目录）
+  if (path.includes('Application Support') || path.includes('AppData')) {
+    return true;
+  }
+  return false;
+};
 
 // Live2DTransform 类型定义（从 core 包重新导出）
 export interface Live2DTransform {
@@ -151,9 +182,20 @@ const loadModel = async (modelPath: string) => {
     placeholder = null;
   }
 
+  // 转换本地文件路径为 localfile:// URL（仅桌面端的文件系统路径）
+  let finalPath = modelPath;
+  if (isDesktopPlatform() && isFileSystemPath(modelPath)) {
+    try {
+      finalPath = convertToLocalfileUrl(modelPath);
+      console.log("Converted path:", modelPath, "->", finalPath);
+    } catch (e) {
+      console.warn("Failed to convert file path:", e);
+    }
+  }
+
   try {
-    console.log("Loading Live2D model:", modelPath);
-    model = await Live2DModel.from(modelPath, {
+    console.log("Loading Live2D model:", finalPath);
+    model = await Live2DModel.from(finalPath, {
       autoInteract: true, // 自动处理鼠标/触摸交互
       autoUpdate: true, // 自动更新
     });
@@ -433,8 +475,8 @@ watch(
 
 // KeepAlive 激活时重新加载模型（仅 PC 端需要，移动端正常）
 onActivated(async () => {
-  // 移动端不需要重新加载
-  if (isMobilePlatform()) {
+  // 非桌面端不需要重新加载
+  if (!isDesktopPlatform()) {
     return;
   }
 

@@ -9,7 +9,7 @@ import {
 } from "vue";
 import * as PIXI from "pixi.js";
 import { Live2DModel } from "pixi-live2d-display";
-// import { Capacitor } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
 import { useSettings, type Live2DTransform } from "@desktopfriends/core";
 
 // 注册 Live2D 到 PIXI（必须在加载模型前执行）
@@ -143,9 +143,20 @@ const loadModel = async (modelPath: string) => {
     placeholder = null;
   }
 
+  // 转换 file:// 路径为 WebView 可访问的 URL
+  let finalPath = modelPath;
+  if (modelPath.startsWith("file://")) {
+    try {
+      finalPath = Capacitor.convertFileSrc(modelPath);
+      console.log("Converted mobile path:", modelPath, "->", finalPath);
+    } catch (e) {
+      console.warn("Failed to convert mobile file path:", e);
+    }
+  }
+
   try {
-    console.log("Loading Live2D model:", modelPath);
-    model = await Live2DModel.from(modelPath, {
+    console.log("Loading Live2D model:", finalPath);
+    model = await Live2DModel.from(finalPath, {
       autoInteract: true, // 自动处理鼠标/触摸交互
       autoUpdate: true, // 自动更新
     });

@@ -17,6 +17,83 @@ export interface UploadProgress {
   message: string
 }
 
+export interface ValidationResult {
+  valid: boolean
+  errors: string[]
+  warnings: string[]
+}
+
+// 动作组信息
+export interface MotionGroupInfo {
+  group: string
+  count: number
+}
+
+// 模型上传结果信息
+export interface ModelUploadInfo {
+  modelName: string
+  expressionCount: number
+  motionGroups: MotionGroupInfo[]
+  textureCount: number
+  totalFiles: number
+}
+
+// 上传结果
+export interface UploadResult {
+  path: string
+  info: ModelUploadInfo
+}
+
+/**
+ * 验证 zip 包是否包含有效的 Live2D 模型文件
+ */
+const validateZipStructure = (zip: JSZip): ValidationResult => {
+  const errors: string[] = []
+  const warnings: string[] = []
+
+  const files = Object.keys(zip.files)
+
+  // 检查模型配置文件
+  const hasModelJson = files.some(
+    (f) =>
+      f.toLowerCase().endsWith('.model3.json') || f.toLowerCase().endsWith('.model.json')
+  )
+  if (!hasModelJson) {
+    errors.push('缺少模型配置文件 (.model3.json 或 .model.json)')
+  }
+
+  // 检查模型数据文件
+  const hasMoc = files.some(
+    (f) => f.toLowerCase().endsWith('.moc3') || f.toLowerCase().endsWith('.moc')
+  )
+  if (!hasMoc) {
+    errors.push('缺少模型数据文件 (.moc3 或 .moc)')
+  }
+
+  // 检查纹理文件
+  const hasTexture = files.some(
+    (f) => f.toLowerCase().endsWith('.png') && !f.toLowerCase().includes('__macosx')
+  )
+  if (!hasTexture) {
+    errors.push('缺少纹理文件 (.png)')
+  }
+
+  // 警告：缺少动作
+  const hasMotion = files.some(
+    (f) =>
+      f.toLowerCase().endsWith('.motion3.json') || f.toLowerCase().endsWith('.motion.json')
+  )
+  if (!hasMotion) {
+    warnings.push('未找到动作文件，模型可能无法播放动作')
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+  }
+}
+
 export function useModelUpload() {
   const isUploading = ref(false)
   const uploadProgress = ref<UploadProgress>({
@@ -59,9 +136,9 @@ export function useModelUpload() {
    * 上传并解压 Live2D 模型 zip 文件
    * @param filePath 用户选择的 zip 文件路径
    * @param modelName 模型名称（用作文件夹名）
-   * @returns 模型 JSON 文件的路径，失败返回 null
+   * @returns 上传结果（包含路径和模型信息），失败返回 null
    */
-  const uploadModel = async (filePath: string, modelName: string): Promise<string | null> => {
+  const uploadModel = async (filePath: string, modelName: string): Promise<UploadResult | null> => {
     if (!filePath.endsWith('.zip')) {
       error.value = '请选择 zip 格式的模型文件'
       return null
@@ -80,22 +157,38 @@ export function useModelUpload() {
       updateProgress('extracting', 30, '正在解压模型...')
       const zip = await JSZip.loadAsync(arrayBuffer)
 
+      // 验证压缩包结构
+      const validation = validateZipStructure(zip)
+      if (!validation.valid) {
+        throw new Error(
+          '压缩包格式不符合要求：\n' +
+            validation.errors.join('\n') +
+            '\n\n请确保压缩包包含完整的 Live2D 模型文件。'
+        )
+      }
+
       // 查找模型文件 (model.json 或 model3.json)
       let foundModelPath: string | null = null
+      let modelJsonContent: string | null = null
 
-      zip.forEach((relativePath, _zipEntry) => {
+      for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
         const fileName = relativePath.toLowerCase()
         if (fileName.endsWith('.model3.json') || fileName.endsWith('.model.json')) {
           if (!foundModelPath || relativePath.length < foundModelPath.length) {
             // 优先选择路径最短的（最顶层的）
             foundModelPath = relativePath
+            // 读取模型 JSON 内容
+            modelJsonContent = await zipEntry.async('string')
           }
         }
-      })
+      }
 
-      if (!foundModelPath) {
+      if (!foundModelPath || !modelJsonContent) {
         throw new Error('未找到模型文件 (model.json 或 model3.json)')
       }
+
+      // 解析模型 JSON 获取信息
+      const modelInfo = parseModelJson(modelJsonContent, modelName)
 
       const modelJsonPath: string = foundModelPath
 
@@ -175,6 +268,9 @@ export function useModelUpload() {
         updateProgress('saving', progress, `正在保存文件 (${savedCount}/${files.length})...`)
       }
 
+      // 更新总文件数
+      modelInfo.totalFiles = savedCount
+
       // 获取模型 JSON 的完整路径
       const modelFileName = modelJsonPath.includes('/')
         ? modelJsonPath.substring(modelJsonPath.lastIndexOf('/') + 1)
@@ -183,7 +279,10 @@ export function useModelUpload() {
       const resultPath = await join(targetDir, modelFileName)
 
       updateProgress('done', 100, '模型上传成功！')
-      return resultPath
+      return {
+        path: resultPath,
+        info: modelInfo,
+      }
     } catch (e) {
       console.error('Model upload error:', e)
       error.value = e instanceof Error ? e.message : '上传失败'
@@ -246,6 +345,78 @@ export function useModelUpload() {
       console.error('Delete model error:', e)
       return false
     }
+  }
+
+  /**
+   * 解析模型 JSON 获取模型信息
+   */
+  const parseModelJson = (jsonContent: string, modelName: string): ModelUploadInfo => {
+    const info: ModelUploadInfo = {
+      modelName,
+      expressionCount: 0,
+      motionGroups: [],
+      textureCount: 0,
+      totalFiles: 0,
+    }
+
+    try {
+      const modelData = JSON.parse(jsonContent)
+
+      // Cubism 3/4 格式 (model3.json)
+      if (modelData.FileReferences) {
+        const fileRefs = modelData.FileReferences
+
+        // 表情
+        if (fileRefs.Expressions && Array.isArray(fileRefs.Expressions)) {
+          info.expressionCount = fileRefs.Expressions.length
+        }
+
+        // 动作
+        if (fileRefs.Motions) {
+          for (const [groupName, motions] of Object.entries(fileRefs.Motions)) {
+            if (Array.isArray(motions)) {
+              info.motionGroups.push({
+                group: groupName,
+                count: motions.length,
+              })
+            }
+          }
+        }
+
+        // 纹理
+        if (fileRefs.Textures && Array.isArray(fileRefs.Textures)) {
+          info.textureCount = fileRefs.Textures.length
+        }
+      }
+      // Cubism 2 格式 (model.json)
+      else {
+        // 表情
+        if (modelData.expressions && Array.isArray(modelData.expressions)) {
+          info.expressionCount = modelData.expressions.length
+        }
+
+        // 动作
+        if (modelData.motions) {
+          for (const [groupName, motions] of Object.entries(modelData.motions)) {
+            if (Array.isArray(motions)) {
+              info.motionGroups.push({
+                group: groupName,
+                count: motions.length,
+              })
+            }
+          }
+        }
+
+        // 纹理
+        if (modelData.textures && Array.isArray(modelData.textures)) {
+          info.textureCount = modelData.textures.length
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse model JSON for info:', e)
+    }
+
+    return info
   }
 
   return {
