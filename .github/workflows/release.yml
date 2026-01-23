@@ -56,6 +56,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Get version from tag
+        id: version
+        run: |
+          # 从 git tag 提取版本号 (v1.0.8 -> 1.0.8)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          # 生成 versionCode (1.0.8 -> 108)
+          VERSION_CODE=$(echo $VERSION | sed 's/\.//g')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION, VersionCode: $VERSION_CODE"
+
       - name: Build packages
         run: pnpm build:packages
 
@@ -75,18 +86,21 @@ jobs:
 
       - name: Build Debug APK
         working-directory: apps/mobile/android
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
         run: ./gradlew assembleDebug
 
       - name: Build Release APK
         working-directory: apps/mobile/android
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew assembleRelease
-
-      - name: Get version from tag
-        id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
 
       - name: Rename APK files for release
         run: |

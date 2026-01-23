@@ -1,14 +1,46 @@
 apply plugin: 'com.android.application'
 
+// 从环境变量读取版本号（用于 CI/CD），否则使用默认值
+def getVersionName = { ->
+    def envVersion = System.getenv("VERSION_NAME")
+    return envVersion ?: "1.0.0"
+}
+
+def getVersionCode = { ->
+    def envCode = System.getenv("VERSION_CODE")
+    if (envCode) {
+        return envCode.toInteger()
+    }
+    return 1
+}
+
 android {
     namespace "com.desktopfriends.app"
     compileSdk rootProject.ext.compileSdkVersion
+
+    // 签名配置
+    signingConfigs {
+        release {
+            def keystoreBase64 = System.getenv("ANDROID_KEYSTORE_BASE64")
+            if (keystoreBase64) {
+                // CI 环境：从 base64 解码 keystore
+                def keystoreFile = file("${rootProject.buildDir}/release-keystore.jks")
+                keystoreFile.parentFile.mkdirs()
+                keystoreFile.bytes = Base64.decoder.decode(keystoreBase64)
+                storeFile keystoreFile
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     defaultConfig {
         applicationId "com.desktopfriends.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0.0"
+        versionCode getVersionCode()
+        versionName getVersionName()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -20,6 +52,10 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // 仅在签名配置可用时使用签名
+            if (signingConfigs.release.storeFile != null) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
