@@ -20,7 +20,7 @@ export const LIVE2D_MOTIONS = [
 ] as const
 
 // 动态生成 OpenAI Function Calling 格式工具
-export const generateOpenAITools = (motions: string[], expressions: string[]) => {
+export const generateOpenAITools = (motions: string[], expressions: string[], includeWidgetTools = false) => {
   const tools: Array<{
     type: 'function'
     function: {
@@ -74,11 +74,85 @@ export const generateOpenAITools = (motions: string[], expressions: string[]) =>
     })
   }
 
+  // 小组件工具
+  if (includeWidgetTools) {
+    // 获取当前时间
+    tools.push({
+      type: 'function' as const,
+      function: {
+        name: 'getCurrentTime',
+        description: '获取当前时间信息',
+        parameters: {
+          type: 'object',
+          properties: {},
+          required: [],
+        },
+      },
+    })
+
+    // 获取待办事项
+    tools.push({
+      type: 'function' as const,
+      function: {
+        name: 'getTodos',
+        description: '获取主人的待办事项列表',
+        parameters: {
+          type: 'object',
+          properties: {
+            showCompleted: {
+              type: 'boolean',
+              description: '是否包含已完成的待办',
+            },
+          },
+          required: [],
+        },
+      },
+    })
+
+    // 添加待办事项
+    tools.push({
+      type: 'function' as const,
+      function: {
+        name: 'addTodo',
+        description: '为主人添加一个待办事项',
+        parameters: {
+          type: 'object',
+          properties: {
+            text: {
+              type: 'string',
+              description: '待办事项内容',
+            },
+          },
+          required: ['text'],
+        },
+      },
+    })
+
+    // 完成待办事项
+    tools.push({
+      type: 'function' as const,
+      function: {
+        name: 'completeTodo',
+        description: '将一个待办事项标记为已完成',
+        parameters: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description: '待办事项ID',
+            },
+          },
+          required: ['id'],
+        },
+      },
+    })
+  }
+
   return tools
 }
 
 // 动态生成 Claude Tool Use 格式工具
-export const generateClaudeTools = (motions: string[], expressions: string[]) => {
+export const generateClaudeTools = (motions: string[], expressions: string[], includeWidgetTools = false) => {
   const tools: Array<{
     name: string
     description: string
@@ -119,6 +193,64 @@ export const generateClaudeTools = (motions: string[], expressions: string[]) =>
           },
         },
         required: ['name'],
+      },
+    })
+  }
+
+  // 小组件工具
+  if (includeWidgetTools) {
+    tools.push({
+      name: 'getCurrentTime',
+      description: '获取当前时间信息',
+      input_schema: {
+        type: 'object' as const,
+        properties: {},
+        required: [],
+      },
+    })
+
+    tools.push({
+      name: 'getTodos',
+      description: '获取主人的待办事项列表',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          showCompleted: {
+            type: 'boolean',
+            description: '是否包含已完成的待办',
+          },
+        },
+        required: [],
+      },
+    })
+
+    tools.push({
+      name: 'addTodo',
+      description: '为主人添加一个待办事项',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          text: {
+            type: 'string',
+            description: '待办事项内容',
+          },
+        },
+        required: ['text'],
+      },
+    })
+
+    tools.push({
+      name: 'completeTodo',
+      description: '将一个待办事项标记为已完成',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          id: {
+            type: 'string',
+            description: '待办事项ID',
+          },
+        },
+        required: ['id'],
       },
     })
   }

@@ -68,6 +68,9 @@ importers:
       '@capacitor/filesystem':
         specifier: ^6.0.4
         version: 6.0.4(@capacitor/core@6.2.1)
+      '@capacitor/geolocation':
+        specifier: ^8.0.0
+        version: 8.0.0(@capacitor/core@6.2.1)
       '@capacitor/keyboard':
         specifier: ^6.0.4
         version: 6.0.4(@capacitor/core@6.2.1)
@@ -357,10 +360,18 @@ packages:
     peerDependencies:
       '@capacitor/core': ^6.0.0
 
+  '@capacitor/geolocation@8.0.0':
+    resolution: {integrity: sha512-ci6gOWd5/uruC3bRTxI3xFd9g82WnnJbdQxOH3oZOATNuedlaAw5c5/zXEIMYfRB7t2x1v8/N9gXkND6/nOmVQ==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
+
   '@capacitor/keyboard@6.0.4':
     resolution: {integrity: sha512-tNeyQGxIOTiSv3g+dTxJ/plVpGMnB4daJuCHz1E2Kelo+jOx+FKlyFY9L1Ow144SCzuXK48NXr8WoxXfXgQEKA==}
     peerDependencies:
       '@capacitor/core': ^6.0.0
+
+  '@capacitor/synapse@1.0.4':
+    resolution: {integrity: sha512-/C1FUo8/OkKuAT4nCIu/34ny9siNHr9qtFezu4kxm6GY1wNFxrCFWjfYx5C1tUhVGz3fxBABegupkpjXvjCHrw==}
 
   '@docsearch/css@3.8.2':
     resolution: {integrity: sha512-y05ayQFyUmCXze79+56v/4HpycYF3uFqB78pLPrSV5ZKAlDuIAAJNhaRi8tTdRNXh05yxX/TyNnzD6LwSM89vQ==}
@@ -3121,9 +3132,16 @@ snapshots:
     dependencies:
       '@capacitor/core': 6.2.1
 
+  '@capacitor/geolocation@8.0.0(@capacitor/core@6.2.1)':
+    dependencies:
+      '@capacitor/core': 6.2.1
+      '@capacitor/synapse': 1.0.4
+
   '@capacitor/keyboard@6.0.4(@capacitor/core@6.2.1)':
     dependencies:
       '@capacitor/core': 6.2.1
+
+  '@capacitor/synapse@1.0.4': {}
 
   '@docsearch/css@3.8.2': {}
 

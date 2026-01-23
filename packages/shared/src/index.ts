@@ -1,3 +1,6 @@
+
+
+
 /**
  * 宠物信息
  */
@@ -78,3 +81,6 @@ export interface ClientToServerEvents {
   'pet:message': (message: Pick<PetMessage, 'content' | 'to' | 'toName' | 'messageType'>) => void
   'pet:action': (action: Omit<PetAction, 'petId' | 'petName'>) => void
 }
+
+// Widget types
+export * from './widget'
