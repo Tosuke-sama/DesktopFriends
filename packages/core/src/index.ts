@@ -45,3 +45,18 @@ export type {
   PetMessage,
   LLMConfig,
 } from '@desktopfriends/shared'
+// Widget types
+export type {
+  WidgetType,
+  WidgetConfig,
+  WidgetSettings,
+  ClockWidgetSettings,
+  PhotoWidgetSettings,
+  WeatherWidgetSettings,
+  TodoWidgetSettings,
+  PhotoItem,
+} from '@desktopfriends/shared'
+
+// Widget 相关 Composable 导出
+export { useWidgets } from './composables/useWidgets'
+export { useWidgetEvents } from './composables/useWidgetEvents'

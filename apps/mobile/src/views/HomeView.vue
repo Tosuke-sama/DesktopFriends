@@ -12,6 +12,8 @@ import {
   useP2P,
   useChatHistory,
   useXiaoZhi,
+  useWidgetEvents,
+  useWidgets,
   type ChatResponse,
   type ToolCall,
   type PetMessage,
@@ -19,6 +21,9 @@ import {
 } from "@desktopfriends/core";
 import Live2DCanvas from "../components/Live2DCanvas.vue";
 import { useKeyboard } from "../composables/useKeyboard";
+import { widgetInfo } from "@desktopfriends/shared";
+import WidgetContainer from "../components/widgets/WidgetContainer.vue";
+import type { WidgetType, WidgetEvent } from "@desktopfriends/shared";
 
 // 组件名称，用于 KeepAlive
 defineOptions({
@@ -55,6 +60,120 @@ const useXiaozhiBackend = computed(() => settings.value.xiaozhiEnabled);
 
 // XiaoZhi 事件处理器注销函数
 const xiaozhiUnsubscribers: Array<() => void> = [];
+
+// 小组件系统
+const { editMode, addWidget, enabledWidgets } = useWidgets();
+const showWidgetPanel = ref(false);
+
+// 小组件事件
+const { subscribe: subscribeWidgetEvent } = useWidgetEvents();
+
+// 处理小组件事件（整点报时等）
+const handleWidgetEvent = async (event: WidgetEvent) => {
+  console.log("Widget event:", event);
+
+  // 只有在配置了 LLM 时才响应
+  if (!isLLMConfigured.value) return;
+
+  // 构建事件消息
+  let eventMessage = "";
+  if (event.type === "hourlyChime") {
+    eventMessage = `[系统提示: ${event.data.message}] 请简短地提醒主人现在的时间`;
+  } else if (event.type === "halfHourlyChime") {
+    eventMessage = `[系统提示: ${event.data.message}]`;
+  } else if (event.type === "photoChanged") {
+    eventMessage = `[系统提示: 照片切换了] 可以对当前照片发表一下评论`;
+  }
+
+  if (!eventMessage) return;
+
+  // 配置 LLM
+  setConfig(getLLMConfig());
+  setPetName(currentPet.value.name);
+  setCustomPrompt(currentPet.value.prompt);
+
+  // 发送事件消息
+  const response = await sendToLLM(eventMessage);
+
+  // 执行工具调用
+  if (response.toolCalls.length > 0) {
+    handleToolCalls(response.toolCalls);
+  }
+
+  // 显示回复
+  if (response.content || response.thinking) {
+    currentSpeaker.value = null;
+    if (response.thinking) {
+      isShowingThinking.value = true;
+      currentMessage.value = response.thinking;
+      if (response.content) {
+        setTimeout(() => {
+          isShowingThinking.value = false;
+          currentMessage.value = response.content || "";
+        }, 2000);
+      }
+    } else if (response.content) {
+      currentMessage.value = response.content;
+    }
+  }
+};
+
+// 订阅小组件事件
+onMounted(() => {
+  subscribeWidgetEvent("hourlyChime", handleWidgetEvent);
+  subscribeWidgetEvent("halfHourlyChime", handleWidgetEvent);
+  subscribeWidgetEvent("photoChanged", handleWidgetEvent);
+});
+
+// 切换小组件编辑模式
+const toggleWidgetEditMode = () => {
+  editMode.value = !editMode.value;
+  if (!editMode.value) {
+    showWidgetPanel.value = false;
+  }
+};
+
+// 切换小组件面板
+const toggleWidgetPanel = () => {
+  showWidgetPanel.value = !showWidgetPanel.value;
+};
+
+// 添加小组件
+const handleAddWidget = (type: WidgetType) => {
+  const info = widgetInfo[type];
+
+  // 检查是否禁用
+  if (info.disabled) {
+    // 显示提示
+    currentMessage.value = info.disabledReason || '该小组件暂不可用';
+    currentSpeaker.value = null;
+
+    // 震动反馈
+    if (navigator.vibrate) {
+      navigator.vibrate(100);
+    }
+
+    // 3秒后清除提示
+    setTimeout(() => {
+      currentMessage.value = '';
+    }, 3000);
+
+    return;
+  }
+
+  // 原有逻辑
+  const widget = addWidget(type);
+  if (widget) {
+    console.log("Added widget:", widget);
+  } else {
+    console.warn("Failed to add widget, no space available");
+    currentMessage.value = '没有足够空间添加小组件';
+    currentSpeaker.value = null;
+    setTimeout(() => {
+      currentMessage.value = '';
+    }, 2000);
+  }
+};
 
 // P2P 连接
 const {
@@ -739,6 +858,17 @@ onUnmounted(() => {
       }}</span>
     </button>
 
+    <!-- 小组件按钮 -->
+    <button
+      class="widget-btn"
+      @click="toggleWidgetEditMode"
+      :class="{ active: editMode }"
+    >
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M3 3h8v8H3V3zm0 10h8v8H3v-8zm10 0h8v8h-8v-8zm0-10h8v8h-8V3z" />
+      </svg>
+    </button>
+
     <!-- 测试面板 -->
     <Transition name="panel">
       <div v-if="showTestPanel" class="test-panel">
@@ -913,8 +1043,54 @@ onUnmounted(() => {
       </div>
     </Transition>
 
+    <!-- 小组件面板 -->
+    <Transition name="panel">
+      <div v-if="editMode" class="widget-panel">
+        <div class="panel-title">
+          小组件
+          <button class="add-widget-btn" @click="toggleWidgetPanel">
+            {{ showWidgetPanel ? "完成" : "+ 添加" }}
+          </button>
+        </div>
+
+        <!-- 添加小组件选择器 -->
+        <div v-if="showWidgetPanel" class="widget-selector">
+          <div
+            v-for="(info, type) in widgetInfo"
+            :key="type"
+            class="widget-option"
+            :class="{ disabled: info.disabled }"
+            @click="handleAddWidget(type as WidgetType)"
+          >
+            <span class="widget-icon">{{ info.icon }}</span>
+            <div class="widget-option-info">
+              <span class="widget-option-name">
+                {{ info.name }}
+                <span v-if="info.disabled" class="dev-tag">开发中</span>
+              </span>
+              <span class="widget-option-desc">{{ info.description }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 当前小组件列表 -->
+        <div v-else class="widget-list-info">
+          <div v-if="enabledWidgets.length === 0" class="no-widgets">
+            暂无小组件，点击"添加"按钮添加
+          </div>
+          <div v-else class="widget-count">
+            已添加 {{ enabledWidgets.length }} 个小组件
+          </div>
+          <p class="widget-hint">拖拽小组件可调整位置</p>
+        </div>
+      </div>
+    </Transition>
+
     <!-- Live2D 模型展示区域 -->
     <Live2DCanvas ref="live2dRef" class="live2d-area" />
+
+    <!-- 小组件容器 -->
+    <WidgetContainer />
 
     <!-- 对话气泡 -->
     <Transition name="bubble">
@@ -1143,7 +1319,7 @@ onUnmounted(() => {
   backdrop-filter: blur(10px);
   border-radius: 16px;
   padding: 16px;
-  z-index: 20;
+  z-index: 30;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   min-width: 220px;
   max-width: 280px;
@@ -1641,6 +1817,178 @@ onUnmounted(() => {
     padding-bottom: env(safe-area-inset-bottom, 0);
     padding-left: env(safe-area-inset-left, 0);
     padding-right: env(safe-area-inset-right, 0);
+  }
+}
+
+/* 小组件按钮 */
+.widget-btn {
+  position: absolute;
+  top: 16px;
+  left: 124px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.widget-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.widget-btn.active {
+  background: rgba(99, 102, 241, 0.8);
+}
+
+.widget-btn svg {
+  width: 24px;
+  height: 24px;
+  color: white;
+}
+
+/* 小组件面板 */
+.widget-panel {
+  position: absolute;
+  top: 70px;
+  left: 16px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  padding: 16px;
+  z-index: 30;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  min-width: 220px;
+  max-width: 280px;
+}
+
+.add-widget-btn {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.add-widget-btn:hover {
+  transform: scale(1.05);
+}
+
+.widget-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.widget-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.widget-option:hover {
+  background: #eeeeee;
+  transform: translateX(4px);
+}
+
+.widget-option:active {
+  transform: scale(0.98);
+}
+
+/* 禁用的小组件选项 */
+.widget-option.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.widget-option.disabled:hover {
+  background: #f5f5f5;
+  transform: none;
+}
+
+.widget-icon {
+  font-size: 24px;
+}
+
+.widget-option-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.widget-option-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 开发中标签 */
+.dev-tag {
+  display: inline-block;
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: #ff9800;
+  color: white;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.widget-option-desc {
+  font-size: 11px;
+  color: #999;
+}
+
+.widget-list-info {
+  text-align: center;
+  padding: 8px 0;
+}
+
+.no-widgets {
+  color: #999;
+  font-size: 13px;
+}
+
+.widget-count {
+  color: #333;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.widget-hint {
+  font-size: 11px;
+  color: #999;
+  margin-top: 8px;
+}
+
+/* 横屏小组件按钮适配 */
+@media (orientation: landscape) {
+  .widget-btn {
+    top: 12px;
+    left: calc(max(12px, env(safe-area-inset-left, 12px)) + 108px);
+  }
+
+  .widget-panel {
+    top: 66px;
+    left: max(12px, env(safe-area-inset-left, 12px));
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
   }
 }
 </style>

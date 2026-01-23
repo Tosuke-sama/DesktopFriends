@@ -9,7 +9,7 @@ import {
   generateClaudeTools,
   generateToolUsagePrompt,
 } from './useLive2DTools'
-import { useWebSocket } from '@desktopfriends/core'
+import { useWidgets } from './useWidgets'
 
 // 聊天响应（包含文本和工具调用）
 export interface ChatResponse {
@@ -35,6 +35,9 @@ export function useChat(config?: Partial<LLMConfig>) {
   const messages = ref<ExtendedMessage[]>([])
   const isLoading = ref(false)
   const error = ref<string | null>(null)
+
+  // 获取小组件状态
+  const { getContextString, enabledWidgets, pendingTodos, addTodo, toggleTodo } = useWidgets()
 
   const llmConfig = ref<LLMConfig>({
     provider: config?.provider || 'openai',
@@ -77,13 +80,14 @@ export function useChat(config?: Partial<LLMConfig>) {
   const getCurrentTools = (provider: string) => {
     const motions = availableMotions.value
     const expressions = availableExpressions.value
+    const hasWidgets = enabledWidgets.value.length > 0
 
     // 如果有动态的动作/表情，使用动态生成的工具
     if (motions.length > 0 || expressions.length > 0) {
       if (provider === 'claude') {
-        return generateClaudeTools(motions, expressions)
+        return generateClaudeTools(motions, expressions, hasWidgets)
       } else {
-        return generateOpenAITools(motions, expressions)
+        return generateOpenAITools(motions, expressions, hasWidgets)
       }
     }
 
@@ -121,7 +125,7 @@ export function useChat(config?: Partial<LLMConfig>) {
 - 内心独白：当你想表达内心想法（不说出口的话）时，使用 <thinking>内心想法</thinking> 标签
 
 【内心独白使用说明】
-内心独白用于表达角色的内心活动，会以不同的气泡样式显示。你可以：
+内心独白用于表达角色的内心活动，会以不同的气泡样式显示。请扮演好角色，完全从角色的角度出发，不要设计任何技术过程与解释，你可以：
 1. 只有内心独白，不说话（害羞、犹豫等场景）
 2. 先有内心独白，再说话（内心吐槽后回应）
 3. 只说话，没有内心独白（正常对话）
@@ -130,6 +134,11 @@ export function useChat(config?: Partial<LLMConfig>) {
 - "<thinking>哼，又来烦我...</thinking>好吧好吧，我听着呢~"
 - "<thinking>主人今天心情好像不错呢</thinking>"
 - "早上好呀，主人！"
+
+避免：
+"<thinking>主人问现在的时间，我需要：1. 调用工具表达情绪2. 同时回复文字当前时间是22:10:58，晚上十点多啦。我可以播放一个可爱的动作，然后告诉主人时间。</thinking>"
+这里可以修改为：
+"<thinking>主人问现在的时间，难道是想要休息了吗？我得提醒主人注意休息</thinking>主人，现在时间是22:10:58，晚上十点多啦。早点休息喔~"
 
 当你决定回复时，请完全代入以下人设角色：
 
@@ -143,19 +152,57 @@ export function useChat(config?: Partial<LLMConfig>) {
     // 替换宠物名称
     const prompt = personalityPrompt.replace(/{petName}/g, petName.value)
 
+    // 获取小组件状态上下文
+    const widgetContext = getContextString()
+    const widgetContextSection = widgetContext ? `\n\n${widgetContext}` : ''
+
     // 添加动态生成的工具使用说明
-    return `${systemBehaviorPrompt}${prompt}\n\n${getCurrentToolPrompt()}`
+    return `${systemBehaviorPrompt}${prompt}${widgetContextSection}\n\n${getCurrentToolPrompt()}`
   }
 
   // 执行工具调用（返回执行结果）
   const executeToolCall = (toolCall: ToolCall): string => {
-    // 这里只返回确认信息，实际的动作执行在 HomeView 中
+    // Live2D 动作/表情（实际执行在 HomeView 中）
     if (toolCall.name === 'playMotion') {
       return `已执行动作: ${toolCall.arguments.name}`
     }
     if (toolCall.name === 'setExpression') {
       return `已设置表情: ${toolCall.arguments.name}`
     }
+
+    // 小组件工具
+    if (toolCall.name === 'getCurrentTime') {
+      const now = new Date()
+      return JSON.stringify({
+        time: now.toLocaleTimeString('zh-CN'),
+        date: now.toLocaleDateString('zh-CN'),
+        weekday: ['日', '一', '二', '三', '四', '五', '六'][now.getDay()],
+        hour: now.getHours(),
+        minute: now.getMinutes(),
+      })
+    }
+
+    if (toolCall.name === 'getTodos') {
+      const showCompleted = toolCall.arguments.showCompleted as boolean
+      const todos = showCompleted ? pendingTodos.value : pendingTodos.value
+      return JSON.stringify({
+        count: todos.length,
+        items: todos.slice(0, 5).map(t => ({ id: t.id, text: t.text, completed: t.completed })),
+      })
+    }
+
+    if (toolCall.name === 'addTodo') {
+      const text = toolCall.arguments.text as string
+      const todo = addTodo(text)
+      return JSON.stringify({ success: true, id: todo.id, text: todo.text })
+    }
+
+    if (toolCall.name === 'completeTodo') {
+      const id = toolCall.arguments.id as string
+      toggleTodo(id)
+      return JSON.stringify({ success: true, id })
+    }
+
     return `工具 ${toolCall.name} 已执行`
   }
 
@@ -400,6 +447,46 @@ export function useChat(config?: Partial<LLMConfig>) {
         }
       }
     }
+
+    // 解析 DeepSeek DSML 格式的函数调用（有时会出现在文本内容中）
+    // DeepSeek 可能返回两种参数格式：function_arg 或 parameter
+    const dsmlPattern = /<｜DSML｜function_calls>([\s\S]*?)<\/｜DSML｜function_calls>/g
+    const dsmlInvokePattern = /<｜DSML｜invoke name="([^"]+)">([\s\S]*?)<\/｜DSML｜invoke>/g
+    // 支持 function_arg 和 parameter 两种格式，以及额外属性如 string="true"
+    const dsmlArgPattern1 = /<｜DSML｜function_arg name="([^"]+)">([^<]*)<\/｜DSML｜function_arg>/g
+    const dsmlArgPattern2 = /<｜DSML｜parameter name="([^"]+)"[^>]*>([^<]*)<\/｜DSML｜parameter>/g
+
+    let dsmlMatch
+    while ((dsmlMatch = dsmlPattern.exec(content)) !== null) {
+      const dsmlContent = dsmlMatch[1]
+      let invokeMatch
+      while ((invokeMatch = dsmlInvokePattern.exec(dsmlContent)) !== null) {
+        const funcName = invokeMatch[1]
+        const argsContent = invokeMatch[2]
+        const args: Record<string, string> = {}
+
+        // 尝试 function_arg 格式
+        let argMatch
+        dsmlArgPattern1.lastIndex = 0
+        while ((argMatch = dsmlArgPattern1.exec(argsContent)) !== null) {
+          args[argMatch[1]] = argMatch[2]
+        }
+
+        // 尝试 parameter 格式
+        dsmlArgPattern2.lastIndex = 0
+        while ((argMatch = dsmlArgPattern2.exec(argsContent)) !== null) {
+          args[argMatch[1]] = argMatch[2]
+        }
+
+        toolCalls.push({
+          name: funcName,
+          arguments: args,
+        })
+      }
+    }
+
+    // 移除 DSML 标签
+    content = content.replace(dsmlPattern, '').trim()
 
     // 检测特殊标签
     const trimmedContent = content.trim()

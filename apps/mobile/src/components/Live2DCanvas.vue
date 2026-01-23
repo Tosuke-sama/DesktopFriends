@@ -405,6 +405,7 @@ onMounted(async () => {
 
   // 优先使用设置中的模型路径
   if (currentPet.value.modelPath) {
+    console.log("Loading model from settings path", currentPet.value.modelPath);
     await loadModel(currentPet.value.modelPath);
   } else {
     // 尝试自动发现模型
