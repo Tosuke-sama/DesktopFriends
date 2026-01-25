@@ -60,7 +60,20 @@ function loadWidgets(): WidgetConfig[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored) {
-      return JSON.parse(stored)
+      const widgets = JSON.parse(stored)
+
+      // 迁移旧版天气设置（移除 showForecast 字段）
+      return widgets.map((widget: WidgetConfig) => {
+        if (widget.type === 'weather') {
+          const settings = widget.settings as any
+          if ('showForecast' in settings) {
+            const { showForecast, ...rest } = settings
+            console.log(`🔄 迁移天气 Widget (${widget.id}): 移除 showForecast 字段`)
+            return { ...widget, settings: rest }
+          }
+        }
+        return widget
+      })
     }
   } catch (e) {
     console.error('Failed to load widgets:', e)

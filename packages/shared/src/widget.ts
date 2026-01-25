@@ -70,8 +70,8 @@ export interface WeatherWidgetSettings {
   type: 'weather'
   location: string
   units: 'metric' | 'imperial'
-  showForecast: boolean
   alertOnChange: boolean
+  apiKey?: string // 用户自定义 API Key（可选）
 }
 
 // Todo widget settings
@@ -147,8 +147,8 @@ export const defaultWeatherSettings: WeatherWidgetSettings = {
   type: 'weather',
   location: '',
   units: 'metric',
-  showForecast: true,
   alertOnChange: true,
+  apiKey: undefined,
 }
 
 export const defaultTodoSettings: TodoWidgetSettings = {

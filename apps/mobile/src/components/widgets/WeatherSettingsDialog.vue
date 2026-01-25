@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import type { WeatherWidgetSettings } from '@desktopfriends/shared'
 import { Geolocation } from '@capacitor/geolocation'
+import { reverseGeocode } from '@desktopfriends/core'
 
 const props = defineProps<{
   modelValue: boolean
@@ -13,11 +14,15 @@ const emit = defineEmits<{
   save: [settings: WeatherWidgetSettings]
 }>()
 
+// 获取 API Key（优先使用用户自定义的，否则使用环境变量）
+const apiKey = computed(() => {
+  return props.settings.apiKey || import.meta.env.VITE_QWEATHER_API_KEY || '';
+});
+
 // 状态
 const inputMethod = ref<'manual' | 'gps' | 'list'>('manual')
 const locationInput = ref('')
 const units = ref<'metric' | 'imperial'>('metric')
-const showForecast = ref(true)
 const alertOnChange = ref(true)
 const isLocating = ref(false)
 const gpsError = ref('')
@@ -35,7 +40,6 @@ watch(() => props.modelValue, (visible) => {
   if (visible) {
     locationInput.value = props.settings.location
     units.value = props.settings.units
-    showForecast.value = props.settings.showForecast
     alertOnChange.value = props.settings.alertOnChange
     gpsError.value = ''
     gpsResult.value = ''
@@ -66,49 +70,25 @@ async function requestGPSLocation() {
     })
 
     const { latitude, longitude } = position.coords
-    console.log(`📍 GPS coordinates: ${latitude}, ${longitude}`)
+    console.log(`📍 GPS坐标: ${latitude}, ${longitude}`)
 
-    // 逆地理编码：使用 Nominatim API 将坐标转换为城市名
+    // 使用和风逆地理编码
     try {
-      const reverseUrl = `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&accept-language=zh-CN`
+      const cityName = await reverseGeocode(
+        latitude,
+        longitude,
+        apiKey.value  // 使用 computed 的 API Key
+      )
 
-      const response = await fetch(reverseUrl, {
-        headers: {
-          'User-Agent': 'TableFri-Weather-Widget/1.0'
-        }
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        const address = data.address
-
-        // 提取城市名（优先级：city > town > village > county）
-        const cityName = address.city || address.town || address.village || address.county || address.state
-
-        if (cityName) {
-          locationInput.value = cityName
-          gpsResult.value = `${cityName} (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`
-          console.log(`✅ Reverse geocoding success: ${cityName}`)
-        } else {
-          // 降级方案：使用坐标
-          const coordName = `位置(${latitude.toFixed(2)}, ${longitude.toFixed(2)})`
-          locationInput.value = coordName
-          gpsResult.value = coordName
-          console.log('⚠️ City name not found, using coordinates')
-        }
-      } else {
-        // API 失败时使用坐标
-        const coordName = `位置(${latitude.toFixed(2)}, ${longitude.toFixed(2)})`
-        locationInput.value = coordName
-        gpsResult.value = coordName
-        console.log('⚠️ Reverse geocoding API failed, using coordinates')
-      }
+      locationInput.value = cityName
+      gpsResult.value = `${cityName} (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`
+      console.log(`✅ 逆地理编码成功: ${cityName}`)
     } catch (reverseError) {
-      // 逆地理编码失败时使用坐标
+      // 降级方案：使用坐标
       const coordName = `位置(${latitude.toFixed(2)}, ${longitude.toFixed(2)})`
       locationInput.value = coordName
       gpsResult.value = coordName
-      console.log('⚠️ Reverse geocoding error, using coordinates:', reverseError)
+      console.log('⚠️ 逆地理编码失败，使用坐标:', reverseError)
     }
   } catch (error: any) {
     console.error('❌ GPS定位失败:', error)
@@ -129,7 +109,6 @@ function save() {
     type: 'weather',
     location: locationInput.value.trim(),
     units: units.value,
-    showForecast: showForecast.value,
     alertOnChange: alertOnChange.value,
   })
 
@@ -227,13 +206,6 @@ function close() {
                   华氏度 (°F)
                 </label>
               </div>
-            </div>
-
-            <div class="setting-group">
-              <label class="checkbox-label">
-                <input type="checkbox" v-model="showForecast" />
-                显示天气预报
-              </label>
             </div>
 
             <div class="setting-group">
