@@ -21,6 +21,14 @@ export {
   XIAOZHI_AUDIO_CONFIG,
 } from './utils/opusCodec'
 
+// 天气 API 工具导出
+export {
+  searchCity,
+  getWeatherByLocationId,
+  getWeatherByCityName,
+  reverseGeocode,
+} from './utils/weatherApi'
+
 // 类型导出
 export type { ChatMessage } from './types'
 export type { Live2DTransform } from './composables/useSettings'

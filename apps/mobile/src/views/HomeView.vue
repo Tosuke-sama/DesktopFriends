@@ -62,8 +62,8 @@ const useXiaozhiBackend = computed(() => settings.value.xiaozhiEnabled);
 const xiaozhiUnsubscribers: Array<() => void> = [];
 
 // 小组件系统
-const { editMode, addWidget, enabledWidgets } = useWidgets();
-const showWidgetPanel = ref(false);
+const { editMode, addWidget } = useWidgets();
+const showAddWidgetDialog = ref(false);
 
 // 小组件事件
 const { subscribe: subscribeWidgetEvent } = useWidgetEvents();
@@ -128,14 +128,16 @@ onMounted(() => {
 // 切换小组件编辑模式
 const toggleWidgetEditMode = () => {
   editMode.value = !editMode.value;
-  if (!editMode.value) {
-    showWidgetPanel.value = false;
-  }
 };
 
-// 切换小组件面板
-const toggleWidgetPanel = () => {
-  showWidgetPanel.value = !showWidgetPanel.value;
+// 打开添加小组件对话框
+const openAddWidgetDialog = () => {
+  showAddWidgetDialog.value = true;
+};
+
+// 关闭添加小组件对话框
+const closeAddWidgetDialog = () => {
+  showAddWidgetDialog.value = false;
 };
 
 // 添加小组件
@@ -165,6 +167,8 @@ const handleAddWidget = (type: WidgetType) => {
   const widget = addWidget(type);
   if (widget) {
     console.log("Added widget:", widget);
+    // 添加成功后关闭对话框
+    closeAddWidgetDialog();
   } else {
     console.warn("Failed to add widget, no space available");
     currentMessage.value = '没有足够空间添加小组件';
@@ -869,6 +873,49 @@ onUnmounted(() => {
       </svg>
     </button>
 
+    <!-- 添加小组件按钮（编辑模式下显示） -->
+    <Transition name="fade">
+      <button
+        v-if="editMode"
+        class="add-widget-btn-float"
+        @click="openAddWidgetDialog"
+      >
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+        </svg>
+      </button>
+    </Transition>
+
+    <!-- 添加小组件对话框 -->
+    <Transition name="dialog">
+      <div v-if="showAddWidgetDialog" class="dialog-overlay" @click="closeAddWidgetDialog">
+        <div class="add-widget-dialog" @click.stop>
+          <div class="dialog-header">
+            <h3>添加小组件</h3>
+            <button class="close-btn" @click="closeAddWidgetDialog">✕</button>
+          </div>
+          <div class="widget-selector">
+            <div
+              v-for="(info, type) in widgetInfo"
+              :key="type"
+              class="widget-option"
+              :class="{ disabled: info.disabled }"
+              @click="handleAddWidget(type as WidgetType)"
+            >
+              <span class="widget-icon">{{ info.icon }}</span>
+              <div class="widget-option-info">
+                <span class="widget-option-name">
+                  {{ info.name }}
+                  <span v-if="info.disabled" class="dev-tag">开发中</span>
+                </span>
+                <span class="widget-option-desc">{{ info.description }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
     <!-- 测试面板 -->
     <Transition name="panel">
       <div v-if="showTestPanel" class="test-panel">
@@ -1040,49 +1087,6 @@ onUnmounted(() => {
         </div>
 
         <button class="reset-btn" @click="resetTransform">重置</button>
-      </div>
-    </Transition>
-
-    <!-- 小组件面板 -->
-    <Transition name="panel">
-      <div v-if="editMode" class="widget-panel">
-        <div class="panel-title">
-          小组件
-          <button class="add-widget-btn" @click="toggleWidgetPanel">
-            {{ showWidgetPanel ? "完成" : "+ 添加" }}
-          </button>
-        </div>
-
-        <!-- 添加小组件选择器 -->
-        <div v-if="showWidgetPanel" class="widget-selector">
-          <div
-            v-for="(info, type) in widgetInfo"
-            :key="type"
-            class="widget-option"
-            :class="{ disabled: info.disabled }"
-            @click="handleAddWidget(type as WidgetType)"
-          >
-            <span class="widget-icon">{{ info.icon }}</span>
-            <div class="widget-option-info">
-              <span class="widget-option-name">
-                {{ info.name }}
-                <span v-if="info.disabled" class="dev-tag">开发中</span>
-              </span>
-              <span class="widget-option-desc">{{ info.description }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 当前小组件列表 -->
-        <div v-else class="widget-list-info">
-          <div v-if="enabledWidgets.length === 0" class="no-widgets">
-            暂无小组件，点击"添加"按钮添加
-          </div>
-          <div v-else class="widget-count">
-            已添加 {{ enabledWidgets.length }} 个小组件
-          </div>
-          <p class="widget-hint">拖拽小组件可调整位置</p>
-        </div>
       </div>
     </Transition>
 
@@ -1853,40 +1857,106 @@ onUnmounted(() => {
   color: white;
 }
 
-/* 小组件面板 */
-.widget-panel {
+/* 添加小组件浮动按钮（编辑模式下显示） */
+.add-widget-btn-float {
   position: absolute;
   top: 70px;
-  left: 16px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  border-radius: 16px;
-  padding: 16px;
-  z-index: 30;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  min-width: 220px;
-  max-width: 280px;
-}
-
-.add-widget-btn {
-  padding: 4px 12px;
-  border: none;
-  border-radius: 12px;
+  left: 124px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  font-size: 12px;
+  border: none;
   cursor: pointer;
-  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.add-widget-btn:hover {
-  transform: scale(1.05);
+.add-widget-btn-float:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
 }
 
+.add-widget-btn-float:active {
+  transform: translateY(0);
+}
+
+.add-widget-btn-float svg {
+  width: 24px;
+  height: 24px;
+  color: white;
+}
+
+/* 对话框覆盖层 */
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+}
+
+/* 添加小组件对话框 */
+.add-widget-dialog {
+  background: white;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 400px;
+  max-height: 70vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #eee;
+}
+
+.dialog-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+}
+
+.close-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  color: #666;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: background 0.2s;
+}
+
+.close-btn:hover {
+  background: #f5f5f5;
+}
+
+/* 小组件选择器 */
 .widget-selector {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 16px;
+  overflow-y: auto;
 }
 
 .widget-option {
@@ -1955,26 +2025,37 @@ onUnmounted(() => {
   color: #999;
 }
 
-.widget-list-info {
-  text-align: center;
-  padding: 8px 0;
+/* 对话框动画 */
+.dialog-enter-active,
+.dialog-leave-active {
+  transition: opacity 0.3s ease;
 }
 
-.no-widgets {
-  color: #999;
-  font-size: 13px;
+.dialog-enter-from,
+.dialog-leave-to {
+  opacity: 0;
 }
 
-.widget-count {
-  color: #333;
-  font-size: 14px;
-  font-weight: 500;
+.dialog-enter-active .add-widget-dialog,
+.dialog-leave-active .add-widget-dialog {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.widget-hint {
-  font-size: 11px;
-  color: #999;
-  margin-top: 8px;
+.dialog-enter-from .add-widget-dialog,
+.dialog-leave-to .add-widget-dialog {
+  transform: scale(0.9) translateY(20px);
+}
+
+/* Fade 动画（用于添加按钮） */
+.fade-enter-active,
+.fade-leave-active {
+  transition: all 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: scale(0.8);
 }
 
 /* 横屏小组件按钮适配 */
@@ -1984,11 +2065,9 @@ onUnmounted(() => {
     left: calc(max(12px, env(safe-area-inset-left, 12px)) + 108px);
   }
 
-  .widget-panel {
+  .add-widget-btn-float {
     top: 66px;
-    left: max(12px, env(safe-area-inset-left, 12px));
-    max-height: calc(100vh - 80px);
-    overflow-y: auto;
+    left: calc(max(12px, env(safe-area-inset-left, 12px)) + 108px);
   }
 }
 </style>

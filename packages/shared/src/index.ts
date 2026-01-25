@@ -84,3 +84,4 @@ export interface ClientToServerEvents {
 
 // Widget types
 export * from './widget'
+export * from './weatherTypes'
