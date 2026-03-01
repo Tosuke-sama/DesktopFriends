@@ -68,3 +68,38 @@ export type {
 // Widget 相关 Composable 导出
 export { useWidgets } from './composables/useWidgets'
 export { useWidgetEvents } from './composables/useWidgetEvents'
+
+// Agent 相关导出
+export { useLangChainAgent } from './composables/useAgent'
+export { PetAgent } from './agent'
+export type { PetAgentConfig, AgentResponse } from './agent'
+
+// 新增工具导出
+export {
+  // 模型分析器
+  parseModelConfig,
+  parseModelConfigWithLLM,
+  analyzeMotionsWithLLM,
+  getMotionNames,
+  getExpressionNames,
+  createEmotionToMotionMap,
+  // 工具创建函数
+  createLive2DTools,
+  suggestMotionByEmotion,
+  createWidgetTools,
+  createCognitiveTools,
+  createCommunicationTools,
+  createPluginTools,
+} from './tools'
+
+// 新增类型导出
+export type {
+  Live2DModelConfig,
+  ParsedMotion,
+  ParsedExpression,
+  ModelAnalysisResult,
+  LLMAnalyzerConfig,
+  PluginToolDefinition,
+  PluginManifest,
+  PluginToolExecutor,
+} from './tools'
