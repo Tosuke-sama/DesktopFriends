@@ -7,15 +7,13 @@ import {
   VoiceButton,
 } from "@desktopfriends/ui";
 import {
-  useChat,
+  useLangChainAgent,
   useSettings,
   useP2P,
   useChatHistory,
   useXiaoZhi,
   useWidgetEvents,
   useWidgets,
-  type ChatResponse,
-  type ToolCall,
   type PetMessage,
   type PetInfo,
 } from "@desktopfriends/core";
@@ -34,19 +32,11 @@ const emit = defineEmits<{
   openSettings: [];
 }>();
 
-const { settings, getLLMConfig, currentPet, live2dTransform, backgroundStyle } =
+const { settings, currentPet, live2dTransform, backgroundStyle } =
   useSettings();
-const {
-  sendMessage: sendToLLM,
-  isLoading,
-  setConfig,
-  setPetName,
-  setCustomPrompt,
-  setAvailableActions,
-} = useChat();
 
 // 聊天历史记录
-const { chatHistory, addUserMessage, addPetMessage, addOtherPetMessage } =
+const { chatHistory, addUserMessage, addPetMessage, addOtherPetMessage, addThinkingMessage } =
   useChatHistory();
 
 // 键盘处理
@@ -62,7 +52,7 @@ const useXiaozhiBackend = computed(() => settings.value.xiaozhiEnabled);
 const xiaozhiUnsubscribers: Array<() => void> = [];
 
 // 小组件系统
-const { editMode, addWidget } = useWidgets();
+const { editMode, addWidget, todos, addTodo, toggleTodo, getWidgetContexts } = useWidgets();
 const showAddWidgetDialog = ref(false);
 
 // 小组件事件
@@ -87,34 +77,34 @@ const handleWidgetEvent = async (event: WidgetEvent) => {
 
   if (!eventMessage) return;
 
-  // 配置 LLM
-  setConfig(getLLMConfig());
-  setPetName(currentPet.value.name);
-  setCustomPrompt(currentPet.value.prompt);
+  try {
+    // 初始化 agent（仅首次）
+    if (!agent.isInitialized.value) {
+      const llmConfig = {
+        provider: settings.value.llmProvider,
+        apiKey: settings.value.llmApiKey,
+        baseUrl: settings.value.llmBaseUrl,
+        model: settings.value.llmModel,
+      };
+      await agent.analyzeAndSetActions(
+        motionDetails.value,
+        availableExpressions.value,
+        llmConfig,
+      );
+      await agent.initAgent(llmConfig);
+    }
 
-  // 发送事件消息
-  const response = await sendToLLM(eventMessage);
+    // 发送事件消息 - agent 自动处理工具调用
+    const response = await agent.sendMessage(eventMessage);
 
-  // 执行工具调用
-  if (response.toolCalls.length > 0) {
-    handleToolCalls(response.toolCalls);
-  }
-
-  // 显示回复
-  if (response.content || response.thinking) {
-    currentSpeaker.value = null;
-    if (response.thinking) {
-      isShowingThinking.value = true;
-      currentMessage.value = response.thinking;
-      if (response.content) {
-        setTimeout(() => {
-          isShowingThinking.value = false;
-          currentMessage.value = response.content || "";
-        }, 2000);
-      }
-    } else if (response.content) {
+    // 显示回复
+    if (response.content) {
+      isShowingThinking.value = false;
+      currentSpeaker.value = null;
       currentMessage.value = response.content;
     }
+  } catch (error) {
+    console.error("Widget event error:", error);
   }
 };
 
@@ -239,49 +229,76 @@ const motionsByGroup = computed(() => {
   return groups;
 });
 
-// 处理 Tool 调用，控制 Live2D 模型
-const handleToolCalls = (toolCalls: ToolCall[]) => {
-  for (const tool of toolCalls) {
-    console.log("Executing tool:", tool.name, tool.arguments);
-
-    if (tool.name === "playMotion") {
-      const motionName = tool.arguments.name as string;
-      // 查找动作的组和索引
-      const motionInfo = motionDetails.value.find((m) => m.name === motionName);
-      if (motionInfo) {
-        live2dRef.value?.playMotionByIndex(motionInfo.group, motionInfo.index);
-      } else {
-        // 如果找不到，尝试作为组名播放
-        live2dRef.value?.playMotion(motionName);
-      }
-      // 同步动作给其他宠物
-      if (isConnected.value && isRegistered.value) {
-        sendAction("motion", motionName);
-      }
-    } else if (tool.name === "setExpression") {
-      const expressionName = tool.arguments.name as string;
-      live2dRef.value?.setExpression(expressionName);
-      // 同步表情给其他宠物
-      if (isConnected.value && isRegistered.value) {
-        sendAction("expression", expressionName);
-      }
+// LangChain Agent - 替代 useChat
+const agent = useLangChainAgent({
+  petName: currentPet.value.name,
+  customPrompt: currentPet.value.prompt,
+  onPlayMotion: (motionId: string) => {
+    // 先尝试按 name 查找
+    let motionInfo = motionDetails.value.find((m) => m.name === motionId);
+    if (!motionInfo && motionId.includes(":")) {
+      // 再尝试 group:name 格式
+      const [group, name] = motionId.split(":");
+      motionInfo = motionDetails.value.find(
+        (m) => m.group === group && m.name === name,
+      );
     }
-  }
-};
+    if (motionInfo) {
+      live2dRef.value?.playMotionByIndex(motionInfo.group, motionInfo.index);
+    } else {
+      live2dRef.value?.playMotion(motionId);
+    }
+    // 同步动作给其他宠物
+    if (isConnected.value && isRegistered.value) {
+      sendAction("motion", motionId);
+    }
+  },
+  onSetExpression: (name: string) => {
+    live2dRef.value?.setExpression(name);
+    // 同步表情给其他宠物
+    if (isConnected.value && isRegistered.value) {
+      sendAction("expression", name);
+    }
+  },
+  onResetExpression: () => {
+    const defaultExpression = availableExpressions.value[0];
+    if (defaultExpression) {
+      live2dRef.value?.setExpression(defaultExpression);
+    }
+  },
+  onThinking: (thought: string) => {
+    console.log("[Agent Thinking]", thought);
+    addThinkingMessage(currentPet.value.name, thought);
+    isShowingThinking.value = true;
+    currentMessage.value = thought;
+  },
+  widgetContext: {
+    getTodos: () => todos.value,
+    addTodo: (text: string) => addTodo(text),
+    completeTodo: (id: string) => {
+      toggleTodo(id);
+      return true;
+    },
+    getWidgetContexts: () => getWidgetContexts(),
+  },
+});
 
-// 监听可用动作/表情变化，更新到 chat 模块
+// 监听 Live2D 模型动作/表情变化，自动更新 agent 工具
 watch(
   [motionDetails, availableExpressions],
-  ([details, expressions]) => {
-    // 提取所有动作名称（用于 LLM 工具）
-    const motionNames = details.map((m) => m.name);
-    setAvailableActions(motionNames, expressions);
-    console.log("Updated available actions:", {
-      motions: motionNames,
-      expressions,
-    });
-  },
-  { immediate: true }
+  ([newMotions, newExpressions]) => {
+    if (
+      agent.isInitialized.value &&
+      (newMotions.length > 0 || newExpressions.length > 0)
+    ) {
+      agent.analyzeAndSetActions(newMotions, newExpressions, {
+        provider: settings.value.llmProvider,
+        apiKey: settings.value.llmApiKey,
+        baseUrl: settings.value.llmBaseUrl,
+        model: settings.value.llmModel,
+      });
+    }
+  }
 );
 
 // 处理用户发送的消息
@@ -304,7 +321,7 @@ const handleSendMessage = async (message: string) => {
   }
 
   // 原有 LLM 逻辑
-  if (isLoading.value) return;
+  if (agent.isLoading.value) return;
 
   currentMessage.value = "";
   currentThinking.value = null;
@@ -323,57 +340,39 @@ const handleSendMessage = async (message: string) => {
     });
   }
 
-  // 配置 LLM 和宠物名称
-  setConfig(getLLMConfig());
-  setPetName(currentPet.value.name);
-  setCustomPrompt(currentPet.value.prompt);
-
-  // 发送消息（无论是否配置 API，都会返回 ChatResponse）
-  const response: ChatResponse = await sendToLLM(message);
-
-  // 执行工具调用（控制 Live2D）
-  if (response.toolCalls.length > 0) {
-    handleToolCalls(response.toolCalls);
-  }
-
-  // 如果宠物选择不回复（content 和 thinking 都为 null），则不显示任何内容
-  if (response.content === null && response.thinking === null) {
-    console.log("Pet chose not to reply");
-    return;
-  }
-
-  // 构建历史记录内容
-  let historyContent = "";
-  if (response.thinking) {
-    historyContent += `💭${response.thinking}`;
-  }
-  if (response.content) {
-    if (historyContent) historyContent += " ";
-    historyContent += response.content;
-  }
-
-  // 添加宠物回复到历史记录
-  if (historyContent) {
-    addPetMessage(currentPet.value.name, historyContent);
-  }
-
-  // 显示气泡：先显示内心独白，再显示说的话
-  if (response.thinking) {
-    // 先显示内心独白
-    currentThinking.value = response.thinking;
-    isShowingThinking.value = true;
-    currentMessage.value = response.thinking;
-
-    // 如果有说的话，延迟后显示
-    if (response.content) {
-      setTimeout(() => {
-        isShowingThinking.value = false;
-        currentMessage.value = response.content || "";
-      }, 2000); // 2秒后切换到说的话
+  try {
+    // 初始化 agent（仅首次）
+    if (!agent.isInitialized.value) {
+      const llmConfig = {
+        provider: settings.value.llmProvider,
+        apiKey: settings.value.llmApiKey,
+        baseUrl: settings.value.llmBaseUrl,
+        model: settings.value.llmModel,
+      };
+      await agent.analyzeAndSetActions(
+        motionDetails.value,
+        availableExpressions.value,
+        llmConfig,
+      );
+      await agent.initAgent(llmConfig);
     }
-  } else if (response.content) {
-    // 只有说的话
-    currentMessage.value = response.content;
+
+    // 发送消息 - agent 会自动处理工具调用
+    const response = await agent.sendMessage(message);
+
+    // 显示回复（工具调用已在 agent 内部通过回调自动处理）
+    if (response.content) {
+      isShowingThinking.value = false;
+      currentMessage.value = response.content;
+      currentSpeaker.value = null;
+      addPetMessage(currentPet.value.name, response.content);
+    }
+  } catch (error) {
+    console.error("Chat error:", error);
+    const errorMsg = "抱歉，出了点问题...";
+    currentMessage.value = errorMsg;
+    currentSpeaker.value = null;
+    addPetMessage(currentPet.value.name, errorMsg);
   }
 };
 
@@ -430,10 +429,21 @@ async function handlePetMessage(message: PetMessage) {
     await new Promise((resolve) => setTimeout(resolve, delay));
 
     try {
-      // 配置 LLM
-      setConfig(getLLMConfig());
-      setPetName(currentPet.value.name);
-      setCustomPrompt(currentPet.value.prompt);
+      // 初始化 agent（仅首次）
+      if (!agent.isInitialized.value) {
+        const llmConfig = {
+          provider: settings.value.llmProvider,
+          apiKey: settings.value.llmApiKey,
+          baseUrl: settings.value.llmBaseUrl,
+          model: settings.value.llmModel,
+        };
+        await agent.analyzeAndSetActions(
+          motionDetails.value,
+          availableExpressions.value,
+          llmConfig,
+        );
+        await agent.initAgent(llmConfig);
+      }
 
       // 根据是否为直接目标，构造不同的上下文消息
       let contextMessage: string;
@@ -449,69 +459,38 @@ async function handlePetMessage(message: PetMessage) {
         }
       }
 
-      const response = await sendToLLM(contextMessage);
+      const response = await agent.sendMessage(contextMessage);
 
-      // 执行动作（无论是否回复文字，都可以执行动作）
-      if (response.toolCalls.length > 0) {
-        handleToolCalls(response.toolCalls);
-      }
-
-      // 如果宠物选择不回复（content 和 thinking 都为 null），则不显示文字
-      if (response.content === null && response.thinking === null) {
+      // 如果宠物选择不回复（content 为 null），则不显示文字
+      if (!response.content) {
         console.log("Pet chose not to reply to:", message.from);
         return;
       }
 
-      // 构建历史记录内容
-      let historyContent = "";
-      if (response.thinking) {
-        historyContent += `💭${response.thinking}`;
-      }
-      if (response.content) {
-        if (historyContent) historyContent += " ";
-        historyContent += response.content;
-      }
-
-      // 显示气泡：先显示内心独白，再显示说的话
+      // 显示气泡
       currentSpeaker.value = null;
-      if (response.thinking) {
-        isShowingThinking.value = true;
-        currentMessage.value = response.thinking;
-
-        if (response.content) {
-          setTimeout(() => {
-            isShowingThinking.value = false;
-            currentMessage.value = response.content || "";
-          }, 2000);
-        }
-      } else if (response.content) {
-        currentMessage.value = response.content;
-      }
+      isShowingThinking.value = false;
+      currentMessage.value = response.content;
 
       // 添加宠物回复到历史记录
       if (message.isDirectTarget) {
         // 直接回复对方
         addPetMessage(
           currentPet.value.name,
-          `对 [${message.from}] 说: ${historyContent}`
+          `对 [${message.from}] 说: ${response.content}`
         );
-        // 广播回复，指定目标（只发送说的话，不发送内心独白）
-        if (response.content) {
-          sendP2PMessage(response.content, message.fromId, {
-            messageType: "pet_to_pet",
-            toName: message.from,
-          });
-        }
+        // 广播回复，指定目标
+        sendP2PMessage(response.content, message.fromId, {
+          messageType: "pet_to_pet",
+          toName: message.from,
+        });
       } else {
         // 旁观者插话（广播给所有人）
-        addPetMessage(currentPet.value.name, historyContent);
-        // 只发送说的话，不发送内心独白
-        if (response.content) {
-          sendP2PMessage(response.content, undefined, {
-            messageType: "pet_to_pet",
-            toName: undefined,
-          });
-        }
+        addPetMessage(currentPet.value.name, response.content);
+        sendP2PMessage(response.content, undefined, {
+          messageType: "pet_to_pet",
+          toName: undefined,
+        });
       }
     } catch (e) {
       console.error("Auto reply error:", e);
@@ -699,6 +678,19 @@ watch(isConnected, (connected) => {
 // 注意：不要在组件卸载时断开连接
 // P2P 连接应该在整个应用生命周期内保持
 // 只有在用户明确关闭应用或禁用自动连接时才断开
+
+// P2P 注册成功后，接入 agent 的通信上下文
+watch(isRegistered, (registered) => {
+  if (registered) {
+    agent.setP2PContext({
+      getOnlinePets: () => onlinePets.value,
+      getRecentMessages: () => [],
+      sendMessageToPet: (targetId, content) =>
+        sendP2PMessage(content, targetId),
+      broadcastMessage: (content) => sendP2PMessage(content),
+    });
+  }
+});
 
 // ===== XiaoZhi 集成 =====
 
@@ -1100,10 +1092,10 @@ onUnmounted(() => {
     <Transition name="bubble">
       <ChatBubble
         v-if="
-          (currentMessage || isLoading || isAutoReplying) && settings.showBubble
+          (currentMessage || agent.isLoading.value || isAutoReplying) && settings.showBubble
         "
         :message="currentMessage"
-        :is-thinking="isLoading || isAutoReplying"
+        :is-thinking="(agent.isLoading.value || isAutoReplying) && !isShowingThinking"
         :is-inner-monologue="isShowingThinking"
         :speaker="currentSpeaker"
         class="bubble"
@@ -1140,7 +1132,7 @@ onUnmounted(() => {
       <ChatInput
         class="input-area"
         @send="handleSendMessage"
-        :disabled="isLoading || isAutoReplying || xiaozhi.isRecording.value"
+        :disabled="agent.isLoading.value || isAutoReplying || xiaozhi.isRecording.value"
       />
       <!-- 语音输入按钮 -->
       <VoiceButton
@@ -1651,7 +1643,7 @@ onUnmounted(() => {
   left: 50%;
   transform: translateX(-50%);
   max-width: 80%;
-  z-index: 10;
+  z-index: 50;
 }
 
 .pet-info {

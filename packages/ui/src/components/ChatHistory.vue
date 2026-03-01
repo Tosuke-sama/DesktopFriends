@@ -3,7 +3,7 @@ import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
 
 export interface ChatMessage {
   id: string
-  speaker: 'user' | 'pet' | 'other'
+  speaker: 'user' | 'pet' | 'other' | 'thinking'
   name: string
   content: string
   timestamp: number
@@ -124,11 +124,12 @@ const getAvatar = (message: ChatMessage) => {
 }
 
 // 获取头像颜色
-const getAvatarColor = (speaker: 'user' | 'pet' | 'other') => {
+const getAvatarColor = (speaker: 'user' | 'pet' | 'other' | 'thinking') => {
   switch (speaker) {
     case 'user': return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
     case 'pet': return 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
     case 'other': return 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
+    case 'thinking': return 'linear-gradient(135deg, #a78bfa 0%, #818cf8 100%)'
     default: return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
   }
 }
@@ -217,8 +218,11 @@ defineExpose({
           </div>
           <!-- 内容 -->
           <div class="message-content">
-            <span class="message-name">{{ message.name }}</span>
-            <span class="message-text">{{ message.content }}</span>
+            <span class="message-name">
+              <template v-if="message.speaker === 'thinking'">💭 {{ message.name }}</template>
+              <template v-else>{{ message.name }}</template>
+            </span>
+            <span class="message-text" :class="{ 'thinking-text': message.speaker === 'thinking' }">{{ message.content }}</span>
           </div>
         </div>
       </TransitionGroup>
@@ -410,6 +414,15 @@ defineExpose({
 
 .message-item.other .message-name {
   color: #67e8f9;
+}
+
+.message-item.thinking .message-name {
+  color: #c4b5fd;
+}
+
+.thinking-text {
+  font-style: italic;
+  opacity: 0.8;
 }
 
 .message-text {

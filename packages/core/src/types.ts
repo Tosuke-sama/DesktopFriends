@@ -3,7 +3,7 @@
  */
 export interface ChatMessage {
   id: string
-  speaker: 'user' | 'pet' | 'other'
+  speaker: 'user' | 'pet' | 'other' | 'thinking'
   name: string
   content: string
   timestamp: number

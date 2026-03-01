@@ -16,7 +16,7 @@ const generateId = () => {
 export function useChatHistory() {
   // 添加消息
   const addMessage = (
-    speaker: 'user' | 'pet' | 'other',
+    speaker: 'user' | 'pet' | 'other' | 'thinking',
     name: string,
     content: string,
     avatar?: string
@@ -53,6 +53,11 @@ export function useChatHistory() {
   // 添加其他宠物消息
   const addOtherPetMessage = (name: string, content: string) => {
     return addMessage('other', name, content)
+  }
+
+  // 添加内心独白消息
+  const addThinkingMessage = (name: string, content: string) => {
+    return addMessage('thinking', name, content)
   }
 
   // 清空历史记录
@@ -142,6 +147,7 @@ export function useChatHistory() {
     addUserMessage,
     addPetMessage,
     addOtherPetMessage,
+    addThinkingMessage,
     clearHistory,
     exportHistory,
     exportAsJSON,

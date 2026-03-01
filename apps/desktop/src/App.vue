@@ -8,23 +8,30 @@ import {
 } from "@desktopfriends/ui";
 import {
   useSettings,
-  useChat,
+  useLangChainAgent,
   useChatHistory,
-  generateToolUsagePrompt,
   useP2P,
+  createPluginTools,
 } from "@desktopfriends/core";
+import type { PluginManifest } from "@desktopfriends/core";
 import { isDesktopPlatform } from "@desktopfriends/platform";
 import type { PetMessage, PetInfo } from "@desktopfriends/shared";
 import { appWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/tauri";
+import { readDir, readTextFile } from "@tauri-apps/api/fs";
+import { appDataDir, join } from "@tauri-apps/api/path";
 import WindowControls from "./components/WindowControls.vue";
 import SettingsView from "./views/SettingsView.vue";
 
 const { currentPet, backgroundStyle, settings, live2dTransform } =
   useSettings();
-const chat = useChat();
-const { chatHistory, addUserMessage, addPetMessage, addOtherPetMessage } =
-  useChatHistory();
+const {
+  chatHistory,
+  addUserMessage,
+  addPetMessage,
+  addOtherPetMessage,
+  addThinkingMessage,
+} = useChatHistory();
 
 const live2dRef = ref<InstanceType<typeof Live2DCanvas> | null>(null);
 
@@ -90,7 +97,7 @@ const startMousePositionCheck = () => {
         }
         return;
       }
-      console.log("Cursor position:", cursor, "Model bounds:", bounds);
+      // console.log("Cursor position:", cursor, "Model bounds:", bounds);
 
       // 判断鼠标是否在 Live2D 模型区域内
       const isInLive2DArea =
@@ -143,7 +150,7 @@ const toggleLocked = async () => {
     try {
       // 锁定时禁用穿透，解锁且不在 Live2D 上时启用穿透
       await appWindow.setIgnoreCursorEvents(
-        !isLocked.value && !isHoveringLive2D.value
+        !isLocked.value && !isHoveringLive2D.value,
       );
     } catch (e) {
       console.error("Failed to toggle cursor ignore:", e);
@@ -162,7 +169,7 @@ const showPetsPanel = ref(false);
 // 获取模型可用的动作和表情
 const motionDetails = computed(() => live2dRef.value?.motionDetails || []);
 const availableExpressions = computed(
-  () => live2dRef.value?.availableExpressions || []
+  () => live2dRef.value?.availableExpressions || [],
 );
 
 // 按组分类的动作详情
@@ -196,17 +203,73 @@ const {
   onPetOnline: handlePetOnline,
 });
 
+// LangChain Agent - 替代 useChat
+// 必须在 motionDetails, availableExpressions, useP2P 之后初始化
+const agent = useLangChainAgent({
+  petName: currentPet.value.name,
+  customPrompt: currentPet.value.prompt,
+  // Live2D 回调
+  onPlayMotion: (motionId: string) => {
+    // 先尝试按 name 查找
+    let motionInfo = motionDetails.value.find((m) => m.name === motionId);
+    if (!motionInfo && motionId.includes(":")) {
+      // 再尝试 group:name 格式
+      const [group, name] = motionId.split(":");
+      motionInfo = motionDetails.value.find(
+        (m) => m.group === group && m.name === name,
+      );
+    }
+    if (motionInfo) {
+      live2dRef.value?.playMotionByIndex(motionInfo.group, motionInfo.index);
+    } else {
+      live2dRef.value?.playMotion(motionId);
+    }
+    // 同步动作给其他宠物
+    if (isConnected.value && isRegistered.value) {
+      sendAction("motion", motionId);
+    }
+  },
+  onSetExpression: (name: string) => {
+    live2dRef.value?.setExpression(name);
+    // 同步表情给其他宠物
+    if (isConnected.value && isRegistered.value) {
+      sendAction("expression", name);
+    }
+  },
+  onResetExpression: () => {
+    // 重置到默认表情
+    const defaultExpression = availableExpressions.value[0];
+    if (defaultExpression) {
+      live2dRef.value?.setExpression(defaultExpression);
+    }
+  },
+  // 认知回调
+  onThinking: (thought: string) => {
+    console.log("[Agent Thinking]", thought);
+    // 添加到聊天记录
+    addThinkingMessage(currentPet.value.name, thought);
+    // 显示内心独白气泡
+    showBubble(thought, currentPet.value.name, true);
+  },
+});
+
 // 当前显示的气泡消息
-const currentBubble = ref<{ message: string; speaker: string | null } | null>(
-  null
-);
+const currentBubble = ref<{
+  message: string;
+  speaker: string | null;
+  isInnerMonologue?: boolean;
+} | null>(null);
 let bubbleTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // 显示气泡
-const showBubble = (message: string, speaker: string | null) => {
+const showBubble = (
+  message: string,
+  speaker: string | null,
+  isInnerMonologue: boolean = false,
+) => {
   if (!settings.value.showBubble) return;
 
-  currentBubble.value = { message, speaker };
+  currentBubble.value = { message, speaker, isInnerMonologue };
 
   if (bubbleTimeout) {
     clearTimeout(bubbleTimeout);
@@ -217,40 +280,11 @@ const showBubble = (message: string, speaker: string | null) => {
   }, settings.value.bubbleDuration);
 };
 
-// 处理工具调用
-const handleToolCalls = (
-  toolCalls: Array<{ name: string; arguments: Record<string, unknown> }>
-) => {
-  for (const tool of toolCalls) {
-    if (tool.name === "playMotion") {
-      const name = tool.arguments.name as string;
-      const motionInfo = motionDetails.value.find((m) => m.name === name);
-      if (motionInfo) {
-        live2dRef.value?.playMotionByIndex(motionInfo.group, motionInfo.index);
-      } else {
-        live2dRef.value?.playMotion(name);
-      }
-      // 同步动作给其他宠物
-      if (isConnected.value && isRegistered.value) {
-        sendAction("motion", name);
-      }
-    } else if (tool.name === "setExpression") {
-      const name = tool.arguments.name as string;
-      live2dRef.value?.setExpression(name);
-      // 同步表情给其他宠物
-      if (isConnected.value && isRegistered.value) {
-        sendAction("expression", name);
-      }
-    }
-  }
-};
-
 // 发送消息
 const handleSend = async (message: string) => {
-  if (!message.trim() || chat.isLoading.value) return;
+  if (!message.trim() || agent.isLoading.value) return;
 
-  // 显示用户消息气泡
-  showBubble(message, null);
+  // 添加用户消息到聊天记录（不显示气泡）
   addUserMessage("主人", `对 ${currentPet.value.name} 说: ${message}`);
 
   // 如果已连接服务器，广播用户消息给其他宠物
@@ -262,32 +296,27 @@ const handleSend = async (message: string) => {
   }
 
   try {
-    // 获取当前可用的动作和表情
-    const motions = motionDetails.value.map((m) => m.name);
-    const expressions = availableExpressions.value;
-
-    // 生成工具提示
-    const toolPrompt = generateToolUsagePrompt(motions, expressions);
-    const fullPrompt = `${currentPet.value.prompt}\n\n${toolPrompt}`;
-
-    // 设置配置
-    chat.setCustomPrompt(fullPrompt);
-    chat.setAvailableActions(motions, expressions);
-    chat.setConfig({
-      provider: settings.value.llmProvider,
-      apiKey: settings.value.llmApiKey,
-      baseUrl: settings.value.llmBaseUrl,
-      model: settings.value.llmModel,
-    });
-
-    const response = await chat.sendMessage(message);
-
-    // 处理工具调用
-    if (response.toolCalls && response.toolCalls.length > 0) {
-      handleToolCalls(response.toolCalls);
+    // 初始化 agent（仅首次）
+    if (!agent.isInitialized.value) {
+      // 先使用 LLM 分析动作（失败则回退简单模式）
+      const llmConfig = {
+        provider: settings.value.llmProvider,
+        apiKey: settings.value.llmApiKey,
+        baseUrl: settings.value.llmBaseUrl,
+        model: settings.value.llmModel,
+      };
+      await agent.analyzeAndSetActions(
+        motionDetails.value,
+        availableExpressions.value,
+        llmConfig,
+      );
+      await agent.initAgent(llmConfig);
     }
 
-    // 显示回复
+    // 发送消息 - agent 会自动处理工具调用
+    const response = await agent.sendMessage(message);
+
+    // 显示回复（工具调用已在 agent 内部通过回调自动处理）
     if (response.content) {
       showBubble(response.content, currentPet.value.name);
       addPetMessage(currentPet.value.name, response.content);
@@ -439,7 +468,7 @@ watch(
       connect(serverUrl);
     }
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 // 连接成功后自动注册
@@ -451,6 +480,96 @@ watch(isConnected, (connected) => {
     });
   }
 });
+
+// 监听 Live2D 模型动作/表情变化，自动更新 agent 工具
+watch([motionDetails, availableExpressions], ([newMotions, newExpressions]) => {
+  if (
+    agent.isInitialized.value &&
+    (newMotions.length > 0 || newExpressions.length > 0)
+  ) {
+    agent.analyzeAndSetActions(newMotions, newExpressions, {
+      provider: settings.value.llmProvider,
+      apiKey: settings.value.llmApiKey,
+      baseUrl: settings.value.llmBaseUrl,
+      model: settings.value.llmModel,
+    });
+  }
+});
+
+// P2P 注册成功后，接入 agent 的通信上下文
+watch(isRegistered, (registered) => {
+  if (registered) {
+    agent.setP2PContext({
+      getOnlinePets: () => onlinePets.value,
+      getRecentMessages: () => [],
+      sendMessageToPet: (targetId, content) =>
+        sendP2PMessage(content, targetId),
+      broadcastMessage: (content) => sendP2PMessage(content),
+    });
+  }
+});
+
+// 加载插件 manifest 并创建工具
+const loadPlugins = async () => {
+  try {
+    const dataDir = await appDataDir();
+    const pluginsDir = await join(dataDir, "plugins");
+
+    let entries;
+    try {
+      entries = await readDir(pluginsDir);
+    } catch {
+      console.log("[Plugins] No plugins directory found, skipping");
+      return;
+    }
+
+    const manifests: PluginManifest[] = [];
+    for (const entry of entries) {
+      if (!entry.children && !entry.name) continue;
+      try {
+        const manifestPath = await join(
+          pluginsDir,
+          entry.name!,
+          "manifest.json",
+        );
+        const content = await readTextFile(manifestPath);
+        const manifest = JSON.parse(content) as PluginManifest;
+        manifests.push(manifest);
+        console.log(`[Plugins] Loaded manifest: ${manifest.name}`);
+      } catch {
+        // Skip invalid plugin directories
+      }
+    }
+
+    if (manifests.length === 0) return;
+
+    const tools = manifests.flatMap((manifest) =>
+      createPluginTools(
+        manifest,
+        async (
+          pluginId: string,
+          toolName: string,
+          args: Record<string, unknown>,
+        ) => {
+          return await invoke("plugin_execute_tool", {
+            pluginId,
+            toolName,
+            arguments: args,
+          });
+        },
+      ),
+    );
+
+    if (tools.length > 0) {
+      await agent.setPluginTools(tools);
+      console.log(
+        `[Plugins] Injected ${tools.length} plugin tools into agent`,
+      );
+    }
+  } catch (error) {
+    console.error("[Plugins] Failed to load plugins:", error);
+  }
+};
 
 onMounted(async () => {
   isDesktop.value = isDesktopPlatform();
@@ -469,6 +588,9 @@ onMounted(async () => {
     } catch (e) {
       console.error("Failed to enable initial cursor ignore:", e);
     }
+
+    // 加载桌面端插件
+    loadPlugins();
   }
 });
 
@@ -490,10 +612,7 @@ onUnmounted(() => {
     </Transition>
 
     <!-- 设置页面 -->
-    <SettingsView
-      v-if="currentView === 'settings'"
-      @back="backToHome"
-    />
+    <SettingsView v-if="currentView === 'settings'" @back="backToHome" />
 
     <!-- 主页内容 -->
     <template v-else>
@@ -738,13 +857,14 @@ onUnmounted(() => {
       <!-- 聊天气泡 -->
       <Transition name="bubble">
         <div
-          v-if="currentBubble || chat.isLoading.value"
+          v-if="currentBubble || agent.isLoading.value"
           class="bubble-container"
         >
           <ChatBubble
             :message="currentBubble?.message || ''"
             :speaker="currentBubble?.speaker"
-            :is-thinking="chat.isLoading.value"
+            :is-thinking="agent.isLoading.value && !currentBubble"
+            :is-inner-monologue="currentBubble?.isInnerMonologue"
           />
         </div>
       </Transition>
@@ -772,7 +892,7 @@ onUnmounted(() => {
         <div v-show="showHoverUI" class="input-area">
           <ChatInput
             @send="handleSend"
-            :disabled="chat.isLoading.value"
+            :disabled="agent.isLoading.value"
             placeholder="和宠物说点什么..."
           />
         </div>
@@ -1294,7 +1414,9 @@ onUnmounted(() => {
 /* 淡入淡出动画 */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
 }
 
 .fade-enter-from,
