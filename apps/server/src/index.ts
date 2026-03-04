@@ -3,10 +3,11 @@ import cors from '@fastify/cors'
 import { Server } from 'socket.io'
 import { setupSocketHandlers } from './socket.js'
 import { publishService, unpublishService, getLocalIP } from './mdns.js'
+import { createAuthMiddleware, sessionRegistry } from './auth.js'
 import type { PetInfo, ServerToClientEvents, ClientToServerEvents } from '@desktopfriends/shared'
 
 const DEFAULT_PORT = Number(process.env.PORT) || 3000
-const MAX_PORT_ATTEMPTS = 10  // 最多尝试10个端口
+const MAX_PORT_ATTEMPTS = 10  // 最多尝试 10 个端口
 const HOST = process.env.HOST || '0.0.0.0'
 
 // 创建 Fastify 实例
@@ -26,6 +27,9 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(fastify.server
     methods: ['GET', 'POST'],
   },
 })
+
+// 添加 OpenClaw 认证中间件
+io.use(createAuthMiddleware())
 
 // 存储在线宠物
 const onlinePets = new Map<string, PetInfo>()
@@ -57,6 +61,18 @@ fastify.get('/info', async () => {
   }
 })
 
+// OpenClaw 会话状态接口
+fastify.get('/oc/sessions', async () => {
+  const sessions = sessionRegistry.getAllSessions()
+  return {
+    count: sessions.size,
+    sessions: Array.from(sessions.entries()).map(([key, value]) => ({
+      sessionKey: key,
+      ...value
+    }))
+  }
+})
+
 // 尝试在指定端口启动，失败则递增端口
 async function tryListen(port: number, attempts: number = 0): Promise<number> {
   if (attempts >= MAX_PORT_ATTEMPTS) {
@@ -81,6 +97,7 @@ const start = async () => {
     actualPort = await tryListen(DEFAULT_PORT)
     console.log(`🚀 Server running at http://${HOST}:${actualPort}`)
     console.log(`📡 Socket.io ready for connections`)
+    console.log(`🔐 OpenClaw authentication enabled`)
 
     // 发布 mDNS 服务
     publishService(actualPort)

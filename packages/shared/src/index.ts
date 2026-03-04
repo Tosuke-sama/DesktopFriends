@@ -66,6 +66,23 @@ export interface LLMConfig {
 }
 
 /**
+ * OpenClaw 消息格式
+ */
+export interface OpenClawMessage {
+  messageId: string
+  timestamp: number
+  sessionKey: string
+  sourceSession?: string
+  agentName?: string
+  type: 'text' | 'command' | 'status' | 'heartbeat'
+  content: string
+  metadata?: Record<string, any>
+  targetSession?: string
+  broadcast?: boolean
+  ttl?: number
+}
+
+/**
  * Socket.io 事件类型定义
  */
 export interface ServerToClientEvents {
@@ -74,12 +91,14 @@ export interface ServerToClientEvents {
   'pet:message': (message: PetMessage) => void
   'pet:action': (action: PetAction) => void
   'pets:list': (pets: PetInfo[]) => void
+  'oc:heartbeat:ack': (data: { timestamp: number }) => void
 }
 
 export interface ClientToServerEvents {
   'pet:register': (info: Omit<PetInfo, 'id' | 'joinedAt'>) => void
   'pet:message': (message: Pick<PetMessage, 'content' | 'to' | 'toName' | 'messageType'>) => void
   'pet:action': (action: Omit<PetAction, 'petId' | 'petName'>) => void
+  'oc:heartbeat': () => void
 }
 
 // Widget types

@@ -6,13 +6,24 @@ import type {
   ServerToClientEvents,
   ClientToServerEvents,
 } from '@desktopfriends/shared'
+import { sessionRegistry } from './auth.js'
 
 export function setupSocketHandlers(
   io: Server<ClientToServerEvents, ServerToClientEvents>,
   onlinePets: Map<string, PetInfo>
 ) {
   io.on('connection', (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
-    console.log(`🐾 Pet connected: ${socket.id}`)
+    // 记录连接信息（包括认证信息）
+    const sessionKey = socket.data.sessionKey || 'anonymous'
+    const authenticated = socket.data.authenticated || false
+    const connectedAt = socket.data.connectedAt || new Date().toISOString()
+    
+    console.log(`🐾 Connection: ${socket.id} | sessionKey=${sessionKey} | auth=${authenticated}`)
+
+    // 注册 OpenClaw 会话
+    if (authenticated && sessionKey) {
+      sessionRegistry.register(sessionKey, socket.id)
+    }
 
     // 宠物注册
     socket.on('pet:register', (info: Omit<PetInfo, 'id' | 'joinedAt'>) => {
@@ -101,6 +112,15 @@ export function setupSocketHandlers(
       })
     })
 
+    // OpenClaw 心跳
+    socket.on('oc:heartbeat', () => {
+      const sessionKey = socket.data.sessionKey
+      if (sessionKey) {
+        sessionRegistry.heartbeat(sessionKey)
+        socket.emit('oc:heartbeat:ack', { timestamp: Date.now() })
+      }
+    })
+
     // 断开连接
     socket.on('disconnect', () => {
       const pet = onlinePets.get(socket.id)
@@ -108,6 +128,13 @@ export function setupSocketHandlers(
         onlinePets.delete(socket.id)
         io.emit('pet:offline', socket.id)
         console.log(`👋 Pet disconnected: ${pet.name} (${socket.id})`)
+      }
+      
+      // 注销 OpenClaw 会话
+      const sessionKey = socket.data.sessionKey
+      if (sessionKey) {
+        sessionRegistry.unregister(sessionKey)
+        console.log(`👋 OpenClaw session disconnected: ${sessionKey}`)
       }
     })
   })
