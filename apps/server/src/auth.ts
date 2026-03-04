@@ -154,6 +154,22 @@ export class SessionRegistry {
   }
   
   /**
+   * Alias for getSocketId (for compatibility)
+   */
+  getSessionSocket(sessionKey: string): string | undefined {
+    return this.getSocketId(sessionKey)
+  }
+  
+  /**
+   * Iterate over all sessions
+   */
+  forEachSession(callback: (sessionKey: string, socketId: string) => void): void {
+    for (const [sessionKey, session] of this.sessions.entries()) {
+      callback(sessionKey, session.socketId)
+    }
+  }
+  
+  /**
    * Get session info
    */
   getSession(sessionKey: string): any {

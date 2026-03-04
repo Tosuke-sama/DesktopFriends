@@ -5,8 +5,75 @@ import type {
   PetAction,
   ServerToClientEvents,
   ClientToServerEvents,
+  OpenClawMessage,
 } from '@desktopfriends/shared'
 import { sessionRegistry } from './auth.js'
+import { randomUUID } from 'crypto'
+
+/**
+ * 离线消息队列
+ * 当目标会话不在线时，缓存消息等待上线后推送
+ */
+const offlineMessageQueue = new Map<string, OpenClawMessage[]>()
+const OFFLINE_QUEUE_LIMIT = 100 // 每个会话最多缓存 100 条消息
+const DEFAULT_TTL = 300 // 默认 5 分钟过期
+
+/**
+ * 验证 OpenClaw 消息格式
+ */
+function validateOpenClawMessage(msg: Partial<OpenClawMessage>): boolean {
+  if (!msg.sessionKey) return false
+  if (!msg.content) return false
+  if (!msg.type) return false
+  if (!['text', 'command', 'status', 'heartbeat'].includes(msg.type)) return false
+  return true
+}
+
+/**
+ * 将消息加入离线队列
+ */
+function queueOfflineMessage(msg: OpenClawMessage) {
+  const targetSession = msg.targetSession || msg.sessionKey
+  const queue = offlineMessageQueue.get(targetSession) || []
+  
+  // 检查 TTL，过期的消息不加入队列
+  const ttl = msg.ttl ?? DEFAULT_TTL
+  const expiresAt = msg.timestamp + (ttl * 1000)
+  if (expiresAt < Date.now()) {
+    console.log(`⏰ Message expired: ${msg.messageId}`)
+    return
+  }
+  
+  // 限制队列大小
+  if (queue.length >= OFFLINE_QUEUE_LIMIT) {
+    queue.shift() // 移除最旧的消息
+  }
+  
+  queue.push(msg)
+  offlineMessageQueue.set(targetSession, queue)
+  console.log(`📦 Queued offline message for ${targetSession}: ${msg.messageId}`)
+}
+
+/**
+ * 推送离线消息给刚上线的会话
+ */
+function flushOfflineMessages(sessionKey: string, socket: Socket) {
+  const queue = offlineMessageQueue.get(sessionKey)
+  if (!queue || queue.length === 0) return
+  
+  console.log(`📤 Flushing ${queue.length} offline messages for ${sessionKey}`)
+  
+  for (const msg of queue) {
+    // 再次检查 TTL
+    const ttl = msg.ttl ?? DEFAULT_TTL
+    const expiresAt = msg.timestamp + (ttl * 1000)
+    if (expiresAt >= Date.now()) {
+      socket.emit('oc:message', msg)
+    }
+  }
+  
+  offlineMessageQueue.delete(sessionKey)
+}
 
 export function setupSocketHandlers(
   io: Server<ClientToServerEvents, ServerToClientEvents>,
@@ -119,6 +186,115 @@ export function setupSocketHandlers(
         sessionRegistry.heartbeat(sessionKey)
         socket.emit('oc:heartbeat:ack', { timestamp: Date.now() })
       }
+    })
+
+    // OpenClaw 单播消息
+    socket.on('oc:send', (msg: Omit<OpenClawMessage, 'messageId' | 'timestamp' | 'sourceSession'>) => {
+      if (!authenticated) {
+        socket.emit('oc:error', { code: 'AUTH_FAILED', message: 'Authentication required' })
+        return
+      }
+
+      // 验证消息格式
+      const fullMsg: OpenClawMessage = {
+        ...msg,
+        messageId: randomUUID(),
+        timestamp: Date.now(),
+        sourceSession: sessionKey,
+      }
+
+      if (!validateOpenClawMessage(fullMsg)) {
+        socket.emit('oc:error', { code: 'INVALID_MESSAGE', message: 'Invalid message format' })
+        return
+      }
+
+      const targetSession = msg.targetSession || msg.sessionKey
+      const targetSocketId = sessionRegistry.getSessionSocket(targetSession)
+
+      if (targetSocketId) {
+        const targetSocket = io.sockets.sockets.get(targetSocketId)
+        if (targetSocket) {
+          targetSocket.emit('oc:message', fullMsg)
+          console.log(`📤 Routed message from ${sessionKey} to ${targetSession}: ${fullMsg.messageId}`)
+          // 发送确认给发送者
+          socket.emit('oc:ack', { messageId: fullMsg.messageId, status: 'delivered' })
+          return
+        }
+      }
+
+      // 目标不在线，加入离线队列
+      queueOfflineMessage(fullMsg)
+      socket.emit('oc:ack', { messageId: fullMsg.messageId, status: 'queued' })
+    })
+
+    // OpenClaw 广播消息
+    socket.on('oc:broadcast', (msg: Omit<OpenClawMessage, 'messageId' | 'timestamp' | 'sourceSession' | 'targetSession'>) => {
+      if (!authenticated) {
+        socket.emit('oc:error', { code: 'AUTH_FAILED', message: 'Authentication required' })
+        return
+      }
+
+      const fullMsg: OpenClawMessage = {
+        ...msg,
+        messageId: randomUUID(),
+        timestamp: Date.now(),
+        sourceSession: sessionKey,
+        broadcast: true,
+      }
+
+      if (!validateOpenClawMessage(fullMsg)) {
+        socket.emit('oc:error', { code: 'INVALID_MESSAGE', message: 'Invalid message format' })
+        return
+      }
+
+      // 广播给所有在线会话（除了发送者）
+      let deliveredCount = 0
+      sessionRegistry.forEachSession((sk, socketId) => {
+        if (sk === sessionKey) return // 跳过发送者
+        
+        const targetSocket = io.sockets.sockets.get(socketId)
+        if (targetSocket) {
+          targetSocket.emit('oc:message', fullMsg)
+          deliveredCount++
+        }
+      })
+
+      console.log(`📢 Broadcast from ${sessionKey}: delivered to ${deliveredCount} sessions`)
+      socket.emit('oc:ack', { messageId: fullMsg.messageId, status: 'broadcast', deliveredCount })
+    })
+
+    // OpenClaw 订阅/取消订阅（用于群组消息）
+    socket.on('oc:subscribe', (channel: string) => {
+      if (!authenticated) return
+      
+      socket.join(`channel:${channel}`)
+      console.log(`📌 ${sessionKey} subscribed to channel: ${channel}`)
+    })
+
+    socket.on('oc:unsubscribe', (channel: string) => {
+      if (!authenticated) return
+      
+      socket.leave(`channel:${channel}`)
+      console.log(`📍 ${sessionKey} unsubscribed from channel: ${channel}`)
+    })
+
+    // OpenClaw 频道消息
+    socket.on('oc:channel', (data: { channel: string; content: string; type?: OpenClawMessage['type'] }) => {
+      if (!authenticated) return
+
+      const fullMsg: OpenClawMessage = {
+        messageId: randomUUID(),
+        timestamp: Date.now(),
+        sessionKey: `channel:${data.channel}`,
+        sourceSession: sessionKey,
+        type: data.type || 'text',
+        content: data.content,
+        metadata: { channel: data.channel },
+      }
+
+      // 发送给频道内的所有客户端
+      io.to(`channel:${data.channel}`).emit('oc:message', fullMsg)
+      console.log(`📣 Channel message to ${data.channel} from ${sessionKey}: ${fullMsg.messageId}`)
     })
 
     // 断开连接
