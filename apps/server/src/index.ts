@@ -4,6 +4,7 @@ import { Server } from 'socket.io'
 import { setupSocketHandlers } from './socket.js'
 import { publishService, unpublishService, getLocalIP } from './mdns.js'
 import { createAuthMiddleware, sessionRegistry } from './auth.js'
+import { initDatabase, getDatabase } from './database.js'
 import type { PetInfo, ServerToClientEvents, ClientToServerEvents } from '@desktopfriends/shared'
 
 const DEFAULT_PORT = Number(process.env.PORT) || 3000
@@ -39,6 +40,9 @@ setupSocketHandlers(io, onlinePets)
 
 // 实际使用的端口
 let actualPort = DEFAULT_PORT
+
+// 数据库清理定时器
+let cleanupInterval: NodeJS.Timeout | null = null
 
 // 健康检查接口
 fastify.get('/health', async () => {
@@ -94,6 +98,15 @@ async function tryListen(port: number, attempts: number = 0): Promise<number> {
 // 启动服务器
 const start = async () => {
   try {
+    // 初始化数据库
+    const db = initDatabase()
+    console.log(`💾 Offline message persistence enabled`)
+
+    // 设置定期清理过期消息（每 5 分钟）
+    cleanupInterval = setInterval(() => {
+      db.cleanupExpiredMessages()
+    }, 5 * 60 * 1000)
+
     actualPort = await tryListen(DEFAULT_PORT)
     console.log(`🚀 OpenClaw LAN Bridge running at http://${HOST}:${actualPort}`)
     console.log(`📡 Socket.io ready for connections`)
@@ -106,7 +119,7 @@ const start = async () => {
       metadata: {
         version: '1.0.0',
         protocolVersion: '1.0',
-        capabilities: ['oc:send', 'oc:broadcast', 'oc:heartbeat', 'oc:subscribe', 'offline-queue'],
+        capabilities: ['oc:send', 'oc:broadcast', 'oc:heartbeat', 'oc:subscribe', 'offline-queue', 'persistence'],
       },
     })
   } catch (err) {
@@ -120,6 +133,18 @@ async function gracefulShutdown(signal: string) {
   console.log(`\n🛑 收到 ${signal}，正在关闭服务...`)
 
   try {
+    // 清理定时器
+    if (cleanupInterval) {
+      clearInterval(cleanupInterval)
+    }
+
+    // 关闭数据库连接
+    try {
+      getDatabase().close()
+    } catch (e) {
+      // 数据库可能未初始化
+    }
+
     // 取消 mDNS 服务发布
     unpublishService()
 

@@ -8,13 +8,12 @@ import type {
   OpenClawMessage,
 } from '@desktopfriends/shared'
 import { sessionRegistry } from './auth.js'
+import { getDatabase } from './database.js'
 import { randomUUID } from 'crypto'
 
 /**
- * 离线消息队列
- * 当目标会话不在线时，缓存消息等待上线后推送
+ * 离线消息队列限制
  */
-const offlineMessageQueue = new Map<string, OpenClawMessage[]>()
 const OFFLINE_QUEUE_LIMIT = 100 // 每个会话最多缓存 100 条消息
 const DEFAULT_TTL = 300 // 默认 5 分钟过期
 
@@ -30,11 +29,11 @@ function validateOpenClawMessage(msg: Partial<OpenClawMessage>): boolean {
 }
 
 /**
- * 将消息加入离线队列
+ * 将消息加入离线队列（持久化到数据库）
  */
 function queueOfflineMessage(msg: OpenClawMessage) {
   const targetSession = msg.targetSession || msg.sessionKey
-  const queue = offlineMessageQueue.get(targetSession) || []
+  const db = getDatabase()
   
   // 检查 TTL，过期的消息不加入队列
   const ttl = msg.ttl ?? DEFAULT_TTL
@@ -44,35 +43,61 @@ function queueOfflineMessage(msg: OpenClawMessage) {
     return
   }
   
-  // 限制队列大小
-  if (queue.length >= OFFLINE_QUEUE_LIMIT) {
-    queue.shift() // 移除最旧的消息
+  // 检查队列大小限制
+  const pendingCount = db.getPendingCount(targetSession)
+  if (pendingCount >= OFFLINE_QUEUE_LIMIT) {
+    // 移除最旧的消息（数据库会自动处理，这里只记录日志）
+    console.log(`⚠️ Queue limit reached for ${targetSession}, oldest messages will be cleaned`)
   }
   
-  queue.push(msg)
-  offlineMessageQueue.set(targetSession, queue)
-  console.log(`📦 Queued offline message for ${targetSession}: ${msg.messageId}`)
+  // 持久化到数据库
+  db.queueMessage({
+    messageId: msg.messageId,
+    sessionKey: targetSession,
+    sourceSession: msg.sourceSession,
+    type: msg.type,
+    content: msg.content,
+    metadata: msg.metadata,
+    ttl,
+    timestamp: msg.timestamp,
+  })
 }
 
 /**
- * 推送离线消息给刚上线的会话
+ * 推送离线消息给刚上线的会话（从数据库读取）
  */
 function flushOfflineMessages(sessionKey: string, socket: Socket) {
-  const queue = offlineMessageQueue.get(sessionKey)
-  if (!queue || queue.length === 0) return
+  const db = getDatabase()
+  const messages = db.getPendingMessages(sessionKey)
   
-  console.log(`📤 Flushing ${queue.length} offline messages for ${sessionKey}`)
+  if (messages.length === 0) return
   
-  for (const msg of queue) {
+  console.log(`📤 Flushing ${messages.length} offline messages for ${sessionKey}`)
+  
+  const deliveredIds: string[] = []
+  
+  for (const msg of messages) {
     // 再次检查 TTL
-    const ttl = msg.ttl ?? DEFAULT_TTL
-    const expiresAt = msg.timestamp + (ttl * 1000)
+    const expiresAt = msg.timestamp + (msg.ttl * 1000)
     if (expiresAt >= Date.now()) {
-      socket.emit('oc:message', msg)
+      socket.emit('oc:message', {
+        messageId: msg.messageId,
+        timestamp: msg.timestamp,
+        sessionKey: msg.sessionKey,
+        sourceSession: msg.sourceSession,
+        type: msg.type,
+        content: msg.content,
+        metadata: msg.metadata,
+        ttl: msg.ttl,
+      })
+      deliveredIds.push(msg.messageId)
     }
   }
   
-  offlineMessageQueue.delete(sessionKey)
+  // 批量标记为已投递
+  if (deliveredIds.length > 0) {
+    db.markBatchAsDelivered(deliveredIds)
+  }
 }
 
 export function setupSocketHandlers(
