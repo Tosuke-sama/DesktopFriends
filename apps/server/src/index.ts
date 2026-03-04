@@ -95,12 +95,20 @@ async function tryListen(port: number, attempts: number = 0): Promise<number> {
 const start = async () => {
   try {
     actualPort = await tryListen(DEFAULT_PORT)
-    console.log(`🚀 Server running at http://${HOST}:${actualPort}`)
+    console.log(`🚀 OpenClaw LAN Bridge running at http://${HOST}:${actualPort}`)
     console.log(`📡 Socket.io ready for connections`)
     console.log(`🔐 OpenClaw authentication enabled`)
+    console.log(`🔍 mDNS service discovery active (_openclaw-bridge._tcp)`)
 
-    // 发布 mDNS 服务
-    publishService(actualPort)
+    // 发布 mDNS 服务 (OpenClaw Bridge 模式)
+    publishService(actualPort, undefined, {
+      serviceType: 'openclaw-bridge',
+      metadata: {
+        version: '1.0.0',
+        protocolVersion: '1.0',
+        capabilities: ['oc:send', 'oc:broadcast', 'oc:heartbeat', 'oc:subscribe', 'offline-queue'],
+      },
+    })
   } catch (err) {
     fastify.log.error(err)
     process.exit(1)
