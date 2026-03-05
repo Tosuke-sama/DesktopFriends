@@ -7,7 +7,13 @@
  * @since 2026-03-05
  */
 
-const OPENCLAW_GATEWAY_TOKEN = process.env.OPENCLAW_TOKEN || ''
+/**
+ * Get OpenClaw Gateway token from environment
+ * Reads dynamically to support runtime configuration changes
+ */
+function getOpenClawToken(): string {
+  return process.env.OPENCLAW_TOKEN || ''
+}
 
 /**
  * Verify OpenClaw Gateway token
@@ -21,13 +27,15 @@ const OPENCLAW_GATEWAY_TOKEN = process.env.OPENCLAW_TOKEN || ''
  */
 export async function verifyOpenClawToken(token: string): Promise<boolean> {
   try {
-    if (!token || !OPENCLAW_GATEWAY_TOKEN) {
+    const serverToken = getOpenClawToken()
+    
+    if (!token || !serverToken) {
       console.log('❌ Auth failed: Missing token configuration')
       return false
     }
 
     // Mode 1: Direct token comparison
-    if (token === OPENCLAW_GATEWAY_TOKEN) {
+    if (token === serverToken) {
       console.log('✅ Auth successful: Direct token match')
       return true
     }
