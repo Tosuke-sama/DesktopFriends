@@ -115,7 +115,15 @@ export function setupSocketHandlers(
     // 注册 OpenClaw 会话
     if (authenticated && sessionKey) {
       sessionRegistry.register(sessionKey, socket.id)
-      console.log(`📝 Session registered: ${sessionKey} -> ${socket.id}`)
+      console.log('')
+      console.log('╔════════════════════════════════════════════════════════╗')
+      console.log('║                  🟢 新会话连接 🟢                      ║')
+      console.log('╚════════════════════════════════════════════════════════╝')
+      console.log(`   Socket ID: ${socket.id}`)
+      console.log(`   SessionKey: ${sessionKey}`)
+      console.log(`   认证状态：${authenticated ? '✅ 已认证' : '❌ 未认证'}`)
+      console.log(`   连接时间：${connectedAt}`)
+      console.log('')
     }
 
     // 宠物注册
@@ -241,7 +249,18 @@ export function setupSocketHandlers(
         const targetSocket = io.sockets.sockets.get(targetSocketId)
         if (targetSocket) {
           targetSocket.emit('oc:message', fullMsg)
-          console.log(`📤 Routed message from ${sessionKey} to ${targetSession}: ${fullMsg.messageId}`)
+          console.log('')
+          console.log('╔════════════════════════════════════════════════════════╗')
+          console.log('║              📤 消息路由 - 单播消息 📤                 ║')
+          console.log('╚════════════════════════════════════════════════════════╝')
+          console.log(`   发送者：${sessionKey}`)
+          console.log(`   接收者：${targetSession}`)
+          console.log(`   消息 ID: ${fullMsg.messageId}`)
+          console.log(`   类型：${fullMsg.type}`)
+          console.log(`   内容：${fullMsg.content}`)
+          console.log(`   时间：${new Date(fullMsg.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`)
+          console.log('   状态：✅ 已送达')
+          console.log('')
           // 发送确认给发送者
           socket.emit('oc:ack', { messageId: fullMsg.messageId, status: 'delivered' })
           return
@@ -250,6 +269,18 @@ export function setupSocketHandlers(
 
       // 目标不在线，加入离线队列
       queueOfflineMessage(fullMsg)
+      console.log('')
+      console.log('╔════════════════════════════════════════════════════════╗')
+      console.log('║              📤 消息路由 - 离线消息 📤                 ║')
+      console.log('╚════════════════════════════════════════════════════════╝')
+      console.log(`   发送者：${sessionKey}`)
+      console.log(`   接收者：${targetSession} (离线)`);
+      console.log(`   消息 ID: ${fullMsg.messageId}`)
+      console.log(`   类型：${fullMsg.type}`)
+      console.log(`   内容：${fullMsg.content}`)
+      console.log(`   时间：${new Date(fullMsg.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`)
+      console.log('   状态：📭 已加入离线队列')
+      console.log('')
       socket.emit('oc:ack', { messageId: fullMsg.messageId, status: 'queued' })
     })
 
@@ -285,7 +316,18 @@ export function setupSocketHandlers(
         }
       })
 
-      console.log(`📢 Broadcast from ${sessionKey}: delivered to ${deliveredCount} sessions`)
+      console.log('')
+      console.log('╔════════════════════════════════════════════════════════╗')
+      console.log('║              📤 消息路由 - 广播消息 📤                 ║')
+      console.log('╚════════════════════════════════════════════════════════╝')
+      console.log(`   发送者：${sessionKey}`)
+      console.log(`   消息 ID: ${fullMsg.messageId}`)
+      console.log(`   类型：${fullMsg.type}`)
+      console.log(`   内容：${fullMsg.content}`)
+      console.log(`   时间：${new Date(fullMsg.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`)
+      console.log(`   送达：${deliveredCount} 个会话`)
+      console.log('   状态：📢 广播完成')
+      console.log('')
       socket.emit('oc:ack', { messageId: fullMsg.messageId, status: 'broadcast', deliveredCount })
     })
 
@@ -335,9 +377,16 @@ export function setupSocketHandlers(
       // 注销 OpenClaw 会话
       const sessionKey = socket.data.sessionKey
       if (sessionKey) {
-        console.log(`👋 Disconnect: ${socket.id} | sessionKey=${sessionKey} | reason=${reason}`)
+        console.log('')
+        console.log('╔════════════════════════════════════════════════════════╗')
+        console.log('║                  🔴 会话断开 🔴                        ║')
+        console.log('╚════════════════════════════════════════════════════════╝')
+        console.log(`   Socket ID: ${socket.id}`)
+        console.log(`   SessionKey: ${sessionKey}`)
+        console.log(`   断开原因：${reason}`)
+        console.log(`   断开时间：${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`)
+        console.log('')
         sessionRegistry.unregister(sessionKey)
-        console.log(`📝 Session unregistered: ${sessionKey}`)
       }
     })
   })
