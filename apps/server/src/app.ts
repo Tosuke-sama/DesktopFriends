@@ -8,7 +8,6 @@
 
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
-import { Server as SocketIOServer } from 'socket.io'
 import { setupSocketHandlers } from './socket.js'
 import { publishService, unpublishService, getLocalIP } from './mdns.js'
 import { createAuthMiddleware, sessionRegistry } from './auth.js'
@@ -32,6 +31,9 @@ export async function createApp() {
     origin: true,
   })
 
+  // 动态导入 Socket.io 避免 vitest ESM 问题
+  const { Server: SocketIOServer } = await import('socket.io')
+  
   // 创建 Socket.io 服务器
   const socketIo = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(fastify.server, {
     cors: {
