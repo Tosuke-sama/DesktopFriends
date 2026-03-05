@@ -66,6 +66,40 @@ export interface LLMConfig {
 }
 
 /**
+ * OpenClaw 消息格式
+ */
+export interface OpenClawMessage {
+  messageId: string
+  timestamp: number
+  sessionKey: string
+  sourceSession?: string
+  agentName?: string
+  type: 'text' | 'command' | 'status' | 'heartbeat'
+  content: string
+  metadata?: Record<string, any>
+  targetSession?: string
+  broadcast?: boolean
+  ttl?: number
+}
+
+/**
+ * OpenClaw 错误响应
+ */
+export interface OpenClawError {
+  code: 'AUTH_FAILED' | 'INVALID_MESSAGE' | 'SESSION_NOT_FOUND' | 'RATE_LIMITED'
+  message: string
+}
+
+/**
+ * OpenClaw 确认响应
+ */
+export interface OpenClawAck {
+  messageId: string
+  status: 'delivered' | 'queued' | 'broadcast'
+  deliveredCount?: number
+}
+
+/**
  * Socket.io 事件类型定义
  */
 export interface ServerToClientEvents {
@@ -74,12 +108,22 @@ export interface ServerToClientEvents {
   'pet:message': (message: PetMessage) => void
   'pet:action': (action: PetAction) => void
   'pets:list': (pets: PetInfo[]) => void
+  'oc:heartbeat:ack': (data: { timestamp: number }) => void
+  'oc:message': (message: OpenClawMessage) => void
+  'oc:ack': (data: OpenClawAck) => void
+  'oc:error': (error: OpenClawError) => void
 }
 
 export interface ClientToServerEvents {
   'pet:register': (info: Omit<PetInfo, 'id' | 'joinedAt'>) => void
   'pet:message': (message: Pick<PetMessage, 'content' | 'to' | 'toName' | 'messageType'>) => void
   'pet:action': (action: Omit<PetAction, 'petId' | 'petName'>) => void
+  'oc:heartbeat': () => void
+  'oc:send': (msg: Omit<OpenClawMessage, 'messageId' | 'timestamp' | 'sourceSession'>) => void
+  'oc:broadcast': (msg: Omit<OpenClawMessage, 'messageId' | 'timestamp' | 'sourceSession' | 'targetSession'>) => void
+  'oc:subscribe': (channel: string) => void
+  'oc:unsubscribe': (channel: string) => void
+  'oc:channel': (data: { channel: string; content: string; type?: OpenClawMessage['type'] }) => void
 }
 
 // Widget types
