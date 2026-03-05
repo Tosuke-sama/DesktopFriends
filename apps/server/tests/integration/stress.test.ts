@@ -44,7 +44,7 @@ describe('压力测试', () => {
       console.log(`[Client ${sessionKey}] Connected`);
     });
 
-    client.on('message', (msg: OpenClawMessage) => {
+    client.on('oc:message', (msg: OpenClawMessage) => {
       if (!receivedMessages.has(sessionKey)) {
         receivedMessages.set(sessionKey, []);
       }
