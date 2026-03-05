@@ -115,6 +115,7 @@ export function setupSocketHandlers(
     // 注册 OpenClaw 会话
     if (authenticated && sessionKey) {
       sessionRegistry.register(sessionKey, socket.id)
+      console.log(`📝 Session registered: ${sessionKey} -> ${socket.id}`)
     }
 
     // 宠物注册
@@ -322,20 +323,21 @@ export function setupSocketHandlers(
       console.log(`📣 Channel message to ${data.channel} from ${sessionKey}: ${fullMsg.messageId}`)
     })
 
-    // 断开连接
-    socket.on('disconnect', () => {
+    // 断开连接（带原因）
+    socket.on('disconnect', (reason) => {
       const pet = onlinePets.get(socket.id)
       if (pet) {
         onlinePets.delete(socket.id)
         io.emit('pet:offline', socket.id)
-        console.log(`👋 Pet disconnected: ${pet.name} (${socket.id})`)
+        console.log(`👋 Pet disconnected: ${pet.name} (${socket.id}) | reason=${reason}`)
       }
       
       // 注销 OpenClaw 会话
       const sessionKey = socket.data.sessionKey
       if (sessionKey) {
+        console.log(`👋 Disconnect: ${socket.id} | sessionKey=${sessionKey} | reason=${reason}`)
         sessionRegistry.unregister(sessionKey)
-        console.log(`👋 OpenClaw session disconnected: ${sessionKey}`)
+        console.log(`📝 Session unregistered: ${sessionKey}`)
       }
     })
   })
