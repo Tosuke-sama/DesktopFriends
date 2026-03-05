@@ -29,6 +29,8 @@ export async function verifyOpenClawToken(token: string): Promise<boolean> {
   try {
     const serverToken = getOpenClawToken()
     
+    console.log(`🔑 Token debug: received="${token}", configured="${serverToken}", received_len=${token?.length}, configured_len=${serverToken?.length}`)
+    
     if (!token || !serverToken) {
       console.log('❌ Auth failed: Missing token configuration')
       return false
@@ -39,6 +41,9 @@ export async function verifyOpenClawToken(token: string): Promise<boolean> {
       console.log('✅ Auth successful: Direct token match')
       return true
     }
+    
+    // Debug: show token mismatch details
+    console.log(`⚠️ Token mismatch: received_bytes=${Buffer.from(token).toString('hex')}, configured_bytes=${Buffer.from(serverToken).toString('hex')}`)
 
     // Mode 2: JWT verification (optional, if token is JWT format)
     if (token.startsWith('eyJ')) {
