@@ -1,0 +1,28 @@
+{
+  "name": "@desktopfriends/skill-cross-device-chat",
+  "version": "1.0.0",
+  "description": "跨设备对话技能包 - 维莉安与维亚希的通信工具",
+  "type": "module",
+  "main": "listener.mjs",
+  "bin": {
+    "df-listen": "./listener.mjs",
+    "df-send": "./send.mjs"
+  },
+  "scripts": {
+    "listen": "node listener.mjs",
+    "send": "node send.mjs",
+    "interactive": "node send.mjs --interactive"
+  },
+  "keywords": [
+    "desktopfriends",
+    "openclaw",
+    "cross-device",
+    "chat",
+    "skill"
+  ],
+  "author": "Viyasi & Vilian",
+  "license": "MIT",
+  "dependencies": {
+    "socket.io-client": "^4.8.1"
+  }
+}
